@@ -38,7 +38,10 @@ function replies(h: Host): Reply[] {
 
 describe("host vectors", () => {
   for (const v of data.vectors) {
-    test(v.name, () => {
+    // A vector whose every check is in steps the runner does not run (the
+    // pointer, keys) is skipped, not passed.
+    const checks = v.steps.some((st: Any) => st.inspect || (st.send && st.reply !== undefined));
+    (checks ? test : test.skip)(v.name, () => {
       const h = new Host({ lenient: true });
       v.steps.forEach((st: Any, i: number) => {
         if (st.inspect) {

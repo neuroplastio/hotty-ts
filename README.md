@@ -139,11 +139,12 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 
 - **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan` and `detect`
   all run, and none is skipped: the runner declares every `requires`.
-- **Host section.** The test host passes the commands and inspections of
-  all 51 host vectors. It lays nothing out, so the rows it gives `r=auto`
-  are an estimate and are not checked. The vectors' pointer steps (drags,
-  presses, hover), and the events that follow from a layout, are not run
-  yet.
+- **Host section.** The test host runs the commands and inspections of the
+  host vectors. It lays nothing out, so the rows it gives `r=auto` are an
+  estimate and are not checked. The vectors' pointer and key steps (drags,
+  presses, hover, area, scrolling), and the events that follow from a
+  layout, are not run: a vector whose every check is in such steps is
+  reported as skipped.
 
 ## Development
 
