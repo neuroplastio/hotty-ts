@@ -1,5 +1,5 @@
 {
-  "name": "hotty",
+  "name": "@neuroplastio/hotty",
   "version": "0.0.0",
   "private": true,
   "description": "HOTTY (HTML Over The TTY) for TypeScript programs: the wire, a terminal, a framework's session, and a host for tests",

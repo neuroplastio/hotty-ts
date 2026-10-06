@@ -17,10 +17,12 @@
  * - A {@link Detector} decides whether the terminal is a host, with the time
  *   passed in.
  *
- * The SDK layer is beside it: `hotty/terminal` for a program with a
- * terminal, `hotty/session` for a framework's adapter, `hotty/link` for an
- * environment that hands over what it reads, and `hotty/test` for a host
- * that runs inside a test.
+ * The SDK layer is beside it, in the package's subpaths:
+ * - `@neuroplastio/hotty/terminal` for a program with a terminal;
+ * - `@neuroplastio/hotty/session` for a framework's adapter;
+ * - `@neuroplastio/hotty/link` for an environment that hands over what it
+ *   reads;
+ * - `@neuroplastio/hotty/test` for a host that runs inside a test.
  *
  * @module
  */
