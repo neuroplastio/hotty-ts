@@ -5,6 +5,7 @@
 import { type DefaultTreeAdapterTypes as T, parse, parseFragment, serialize } from "parse5";
 
 import type { Placement } from "../commands.ts";
+import type { Area } from "../messages.ts";
 
 type Node = T.Node;
 type ChildNode = T.ChildNode;
@@ -226,6 +227,13 @@ export class Surface {
   row = 0;
   /** Placed on the alternate screen. */
   alt = false;
+  /** The axes its document scrolls along (SPEC §5.1): 1 vertically, 2 horizontally, 3 both; 0 when it does not. */
+  scroll = 0;
+  /**
+   * Where elements are, by id, as the test says (Host.setArea): the host
+   * lays nothing out, so a click or a press reports these as its area.
+   */
+  areas: Map<string, Area> = new Map();
 
   // The controls' state, which the user changes and the program's
   // attributes set (SPEC §6.2): a control's value, a box's checked.

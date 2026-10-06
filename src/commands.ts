@@ -30,6 +30,14 @@ export interface DocOptions extends ReplyOptions {
    * among its output, which outlives it.
    */
   detached?: boolean;
+  /**
+   * The axes along which the document scrolls, as a page does (`scroll`,
+   * SPEC §5.1, §5.3): a bitmask of SCROLL_VERTICAL and SCROLL_HORIZONTAL.
+   * 0, the default, sends no key, and the document does not scroll; any
+   * other value goes out as given, for the host to judge. A host without
+   * `scroll` in its capabilities ignores it and clips.
+   */
+  scroll?: number;
 }
 
 /** The part of a surface a placement shows, in cells from its top-left corner (SPEC §5.2). */
@@ -101,6 +109,7 @@ export function query(n = 1): string {
 export function doc(surface: string, html: string, opts?: DocOptions): string {
   let ctl = new Control([["a", "doc"], ["s", surface]]);
   if (opts?.detached) ctl = ctl.with("d", 1);
+  if (opts?.scroll) ctl = ctl.with("scroll", opts.scroll);
   return command(ctl, html, REPLY_ON_ERROR, opts);
 }
 

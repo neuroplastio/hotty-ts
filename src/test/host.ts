@@ -3,7 +3,7 @@
 import { MAX_SIZE, OPS } from "../constants.ts";
 import { Decoder } from "../decoder.ts";
 import { encode } from "../encode.ts";
-import { Caps, type Event, type Message } from "../messages.ts";
+import { type Area, Caps, type Event, type Message } from "../messages.ts";
 import { validName } from "../names.ts";
 import {
   attr,
@@ -61,6 +61,7 @@ export interface CapsJson {
   limits?: Record<string, number>;
   net?: Record<string, string[]>;
   passthrough?: boolean;
+  scroll?: boolean;
   host?: string;
   version?: string;
   [field: string]: unknown;
@@ -76,6 +77,7 @@ export function defaultCaps(): CapsJson {
     scale: 1,
     scheme: "dark",
     limits: { surfaces: 64 },
+    scroll: true,
     host: "hotty-ts-test",
   };
 }
@@ -138,7 +140,9 @@ function estimateRows(s: Surface, cols: number): number {
  * It keeps every surface's document as the program's commands leave it,
  * with the delta operations and the morph of SPEC §6, and answers each
  * command as SPEC §3.6 has hosts do. It lays nothing out and draws no
- * pixels: a placement with auto rows gets an estimate (autoRows).
+ * pixels: a placement with auto rows gets an estimate (autoRows), a click
+ * or a press reports the area the test gave its element (setArea), and a
+ * document that asks to scroll records its axes (Surface.scroll).
  *
  * It also answers what terminals answer: Primary Device Attributes, the
  * cursor's position, the background colour, and, when asked to, the kitty
@@ -512,6 +516,9 @@ export class Host implements AsyncIterable<Uint8Array> {
         s.setDoc(markup);
       }
       s.detached = m.get("d") === "1";
+      // Like d, scroll belongs to the document; a host without it ignores it.
+      const axes = m.get("scroll");
+      s.scroll = this.#caps.scroll === true && (axes === "1" || axes === "2" || axes === "3") ? Number(axes) : 0;
       return ok;
     }
     if (!s) return err("ENOENT", "no surface " + name);
@@ -748,13 +755,15 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (href !== undefined) {
       // The href is the handle, and the id too when there is one.
       const u = resolve(s, rep);
-      this.#event(s, "click", attr(rep, "id") ?? "", u ? { href, url: u } : { href });
+      const id = attr(rep, "id") ?? "";
+      this.#event(s, "click", id, { href, ...(u ? { url: u } : {}), ...areaOf(s, id) });
       return;
     }
     const rid = attr(rep, "id");
     if (rid === undefined) throw new HostError("no-report", "nothing with an id reports this click");
     const v = attr(rep, "value");
-    this.#event(s, "click", rid, v === undefined ? undefined : { value: v });
+    const detail = { ...(v === undefined ? {} : { value: v }), ...areaOf(s, rid) };
+    this.#event(s, "click", rid, Object.keys(detail).length > 0 ? detail : undefined);
     if (submits(rep)) {
       const form = closest(rep, (n) => n.tagName === "form");
       if (form) this.#submit(s, form, rep);
@@ -776,7 +785,21 @@ export class Host implements AsyncIterable<Uint8Array> {
 
   #pressAt(s: Surface, el: El | undefined) {
     const n = closest(el, (n) => attr(n, "id") !== undefined);
-    this.#event(s, "press", n ? attr(n, "id")! : "");
+    const id = n ? attr(n, "id")! : "";
+    const area = areaOf(s, id);
+    this.#event(s, "press", id, area.area ? area : undefined);
+  }
+
+  /**
+   * Says where an element is, in the surface's cells, for the area a click
+   * or a press on it reports (SPEC §9): the host lays nothing out, so it
+   * knows only what the test tells it. undefined forgets it. An element with
+   * none reports no area.
+   */
+  setArea(surface: string, id: string, area: Area | undefined): void {
+    const s = this.#target(surface);
+    if (area) s.areas.set(id, { ...area });
+    else s.areas.delete(id);
   }
 
   /**
@@ -1115,4 +1138,11 @@ function resolve(s: Surface, a: El): string {
   } catch {
     return "";
   }
+}
+
+// The area a click or a press on the element with this id reports, as a
+// detail's field: none for an element the test placed nowhere.
+function areaOf(s: Surface, id: string): { area?: Area } {
+  const a = id === "" ? undefined : s.areas.get(id);
+  return a ? { area: { ...a } } : {};
 }

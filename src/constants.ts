@@ -20,6 +20,11 @@ export const REPLY_ON_ERROR = 1;
 /** Never reply. */
 export const NO_REPLY = 2;
 
+/** A document that scrolls vertically: {@link DocOptions.scroll}'s bit (SPEC §5.1). */
+export const SCROLL_VERTICAL = 1;
+/** A document that scrolls horizontally: {@link DocOptions.scroll}'s bit (SPEC §5.1). */
+export const SCROLL_HORIZONTAL = 2;
+
 /**
  * The event kinds a host sends (SPEC §9). A program ignores kinds it does
  * not know: later versions add some, and an Event reports its kind as it

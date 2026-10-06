@@ -24,6 +24,9 @@ const FEATURES = new Set([
   "caps.lenient",
   "caps.drag-kinds",
   "options.unordered",
+  "doc.scroll",
+  "event.area",
+  "caps.scroll",
   "decode.abort-count",
   "decode.unterminated",
   "scanner.da1",
@@ -112,7 +115,7 @@ function build(b: Any): string {
     case "query":
       return hotty.query(a.n);
     case "doc":
-      return hotty.doc(a.surface, a.html, { ...ro, detached: o.detached });
+      return hotty.doc(a.surface, a.html, { ...ro, detached: o.detached, scroll: o.scroll });
     case "place":
       return hotty.place(a.surface, placement(a.placement), ro);
     case "place_at":
@@ -220,6 +223,7 @@ function eventView(e: hotty.Event) {
     fit_rows: nul(e.fitRows()),
     drag: nul(e.drag()),
     hover: hover ? { c: nul(hover.c), r: nul(hover.r), out: hover.out } : null,
+    area: nul(e.area()),
   };
 }
 
@@ -234,6 +238,7 @@ function capsView(c: hotty.Caps, want: Any) {
     limits: c.limits,
     net: c.net,
     passthrough: c.passthrough,
+    scroll: c.scroll,
     host: nul(c.host),
     version: nul(c.version),
     drags: c.drags(),

@@ -156,6 +156,19 @@ export interface Hover {
   out: boolean;
 }
 
+/**
+ * The cells an element covers, as a click or a press reports them (SPEC §9):
+ * from 0 at the surface's top left cell, as a drag's are. An element partly
+ * clipped or scrolled away reports its whole area, so c and r may be
+ * negative or past the surface.
+ */
+export interface Area {
+  c: number;
+  r: number;
+  w: number;
+  h: number;
+}
+
 /** A clicked link (SPEC §9). */
 export interface Link {
   /** The href, as the document has it. */
@@ -240,6 +253,19 @@ export class Event {
     return { c, r, keys: Array.isArray(keys) ? keys.filter(isStr) : [] };
   }
 
+  /**
+   * A click's or a press's element's cells: where the program places what
+   * belongs next to it, such as a select's list. Absent unless c, r, w and
+   * h are all whole numbers.
+   */
+  area(): Area | undefined {
+    if (this.kind !== "click" && this.kind !== "press") return undefined;
+    const a = this.#d.area;
+    if (!isObj(a)) return undefined;
+    const { c, r, w, h } = a;
+    return isInt(c) && isInt(r) && isInt(w) && isInt(h) ? { c, r, w, h } : undefined;
+  }
+
   /** A hover's cell, or out. The element is the event's target. */
   hover(): Hover | undefined {
     if (this.kind !== "hover") return undefined;
@@ -274,6 +300,8 @@ export class Caps {
   readonly net: Record<string, string[]>;
   /** Whether the pointer passes through the parts of a surface that take none (SPEC §9.3). */
   readonly passthrough: boolean;
+  /** Whether a document can ask to scroll (SPEC §5.1, §5.3); a host that does not say clips. */
+  readonly scroll: boolean;
   /** A name for the implementation, when it gives one. */
   readonly host: string | undefined;
   /** The implementation's version, with host. */
@@ -295,6 +323,7 @@ export class Caps {
     this.net = {};
     if (isObj(raw.net)) for (const [k, v] of Object.entries(raw.net)) if (Array.isArray(v)) this.net[k] = v.filter(isStr);
     this.passthrough = raw.passthrough === true;
+    this.scroll = raw.scroll === true;
     this.host = isStr(raw.host) ? raw.host : undefined;
     this.version = isStr(raw.version) ? raw.version : undefined;
   }

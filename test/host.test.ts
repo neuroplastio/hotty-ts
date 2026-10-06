@@ -1,10 +1,11 @@
-// The test host's morph (SPEC §6.2): what the host vectors cannot see,
-// since they inspect a document's markup, is which elements stayed the
-// same, and with them what the user did there.
+// The test host where the host vectors cannot see. Its morph (SPEC §6.2):
+// the vectors inspect a document's markup, not which elements stayed the
+// same, and with them what the user did there. And scroll and area (SPEC
+// §5.1, §9), whose host vectors land with the hosts.
 
 import assert from "node:assert/strict";
 
-import { doc, morphTo, placeAt } from "../src/index.ts";
+import { doc, morphTo, place, placeAt, SCROLL_HORIZONTAL, SCROLL_VERTICAL } from "../src/index.ts";
 import { Host } from "../src/test/index.ts";
 import { describe, test } from "./harness.ts";
 
@@ -80,5 +81,46 @@ describe("Host morph", () => {
     assert.equal(s.byId("y"), y);
     const r = h.replies().at(-1)!.reply()!;
     assert.deepEqual([r.ok, r.code, r.detail], [false, "ENOTARGET", "z,w"]);
+  });
+});
+
+describe("Host scroll and area", () => {
+  const events = (h: Host) =>
+    h.events().map((e) => [e.kind, e.target, e.area() ?? null] as const);
+
+  test("a document's scroll axes are its own; a host without scroll ignores them", () => {
+    const h = new Host();
+    h.write(doc("s", "<ul><li>a</li></ul>", { scroll: SCROLL_VERTICAL | SCROLL_HORIZONTAL }) + place("s", { cols: 10, rows: 2 }));
+    assert.equal(h.surface("s")!.scroll, 3);
+    assert.equal(h.caps.scroll, true);
+    h.write(doc("s", "<p>b</p>"));
+    assert.equal(h.surface("s")!.scroll, 0, "a new document without it does not scroll");
+    h.write(doc("s", "<p>b</p>", { scroll: 4 }));
+    assert.equal(h.surface("s")!.scroll, 0, "anything but 1, 2 or 3 does not scroll");
+    const old = new Host({ caps: { scroll: false } });
+    old.write(doc("s", "<p>c</p>", { scroll: SCROLL_VERTICAL }));
+    assert.equal(old.surface("s")!.scroll, 0);
+    assert.equal(old.caps.scroll, false);
+  });
+
+  test("a click and a press carry the area the test gave the element, and none otherwise", () => {
+    const h = new Host();
+    h.write(doc("f", "<form id=f><select id=env><option>a</option></select><button id=go value=x>Go</button><p id=t>t</p></form>") + place("f", { cols: 30, rows: 1, press: true }));
+    h.setArea("f", "go", { c: 20, r: 0, w: 4, h: 1 });
+    h.setArea("f", "t", { c: -1, r: 3, w: 5, h: 2 });
+    h.click("f", "go");
+    h.press("f", "t");
+    h.press("f", "");
+    h.setArea("f", "go", undefined);
+    h.click("f", "go");
+    assert.deepEqual(events(h).filter(([k]) => k === "click" || k === "press"), [
+      ["press", "go", { c: 20, r: 0, w: 4, h: 1 }],
+      ["click", "go", { c: 20, r: 0, w: 4, h: 1 }],
+      ["press", "t", { c: -1, r: 3, w: 5, h: 2 }],
+      ["press", "", null],
+      ["press", "go", null],
+      ["click", "go", null],
+    ]);
+    assert.equal(h.events().find((e) => e.kind === "click")!.value(), "x", "the value beside the area");
   });
 });
