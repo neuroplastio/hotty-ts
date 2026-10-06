@@ -1,0 +1,57 @@
+{
+  "name": "hotty",
+  "version": "0.0.0",
+  "private": true,
+  "description": "HOTTY (HTML Over The TTY) for TypeScript programs: the wire, a terminal, a framework's session, and a host for tests",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./link": {
+      "types": "./dist/link.d.ts",
+      "default": "./dist/link.js"
+    },
+    "./session": {
+      "types": "./dist/session.d.ts",
+      "default": "./dist/session.js"
+    },
+    "./terminal": {
+      "types": "./dist/terminal.d.ts",
+      "default": "./dist/terminal.js"
+    },
+    "./test": {
+      "types": "./dist/test/index.d.ts",
+      "default": "./dist/test/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "parse5": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "parse5": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "@types/node": "26.6.4",
+    "parse5": "8.0.1",
+    "typescript": "7.0.2"
+  },
+  "keywords": [
+    "hotty",
+    "terminal",
+    "html",
+    "tty"
+  ]
+}
