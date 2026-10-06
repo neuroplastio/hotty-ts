@@ -35,7 +35,8 @@ const TASKS = ["Write the spec", "Build the SDK", "Ship the demo"];
 
 const card = (title: string, chosen: boolean, done: boolean) => `<style>
   .card { height: 100vh; box-sizing: border-box; padding: 0 1ch; border: 1px solid var(--hotty-ansi-8);
-          border-radius: 6px; display: flex; align-items: center; gap: 1ch; font: 14px system-ui, sans-serif; }
+          border-radius: 6px; display: flex; align-items: center; gap: 1ch; font: 14px system-ui, sans-serif;
+          cursor: pointer; }
   .chosen { border-color: var(--hotty-ansi-4); }
   #state { margin-left: auto; color: var(--hotty-ansi-8); }
 </style>

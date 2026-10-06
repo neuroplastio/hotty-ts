@@ -28,6 +28,7 @@ type Answers = Record<string, string>;
 const FORM = `<style>
   form { display: flex; gap: 1.5ch; align-items: center; margin: 0; height: 100vh; }
   input:invalid { outline: 1px solid var(--hotty-ansi-1); }
+  button, select { cursor: pointer; }
 </style>
 <form id="deploy">
   <label>Service <input id="service" name="service" placeholder="api" required size="12"></label>
