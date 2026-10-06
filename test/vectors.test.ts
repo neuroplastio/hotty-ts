@@ -186,7 +186,9 @@ sections("encode", (v) => {
   const last = results.at(-1);
   assert.equal(last?.result, "complete", "does not decode");
   assert.ok(Buffer.from(last!.message!.payload).equals(Buffer.from(payload)), "the payload differs after the round trip");
-  assert.deepEqual([...last!.message!.control.keys()], v.control.map((p: string[]) => p[0]), "control keys");
+  // The keys in order, but m and o, which are Encode's (SDK.md §3.3).
+  const keys = v.control.map((p: string[]) => p[0]).filter((k: string) => k !== "m" && k !== "o");
+  assert.deepEqual([...last!.message!.control.keys()], keys, "control keys");
 });
 
 function hotty_fromBase64(s: string): Uint8Array {
