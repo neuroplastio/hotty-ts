@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 
-import { doc, Scanner, setText } from "../src/index.ts";
+import { doc, SCROLL_VERTICAL, Scanner, setText } from "../src/index.ts";
 import { Link } from "../src/link.ts";
 import { Session, type SessionMessage, type Want } from "../src/session.ts";
 import { Terminal } from "../src/terminal.ts";
@@ -105,6 +105,30 @@ describe("Session", () => {
     s.delete("k");
     frame();
     assert.equal(h.surface("k"), undefined, "delete: kept or not");
+  });
+
+  test("a scrolling surface asks the host with its document; another scroll sends the document again", async () => {
+    const { h, s, frame } = await ready();
+    let built = 0;
+    const want = (scroll?: number) => card("x", 0, 1, { scroll, doc: () => `<p id=t>${++built}</p>` });
+    s.layout([want(SCROLL_VERTICAL)]);
+    frame();
+    const x = h.surface("x")!;
+    assert.ok(x.placed);
+    assert.equal(x.scroll, SCROLL_VERTICAL);
+    s.layout([want(SCROLL_VERTICAL)]);
+    assert.equal(s.flush(), "", "an unchanged layout sends nothing");
+    // The axes are the document's: another value sends it again, and the
+    // placement stays.
+    s.layout([want()]);
+    const out = s.flush();
+    assert.ok(out.includes("a=doc") && !out.includes("scroll=") && !out.includes("a=place"), out);
+    h.write(out);
+    assert.ok(h.surface("x")!.placed);
+    assert.deepEqual([h.surface("x")!.scroll, h.surface("x")!.textOf("t")], [0, "2"]);
+    assert.equal(built, 2);
+    assert.deepEqual(s.counts, { docs: 2, places: 1, hides: 0, deletes: 0, relayouts: 0 });
+    assert.deepEqual(h.errors(), []);
   });
 
   test("in a terminal that is not a host it is text, and sends nothing", async () => {

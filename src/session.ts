@@ -81,8 +81,19 @@ export interface Want {
   /** Ask for hover each time the element under the pointer changes, and when it leaves (SPEC §9.4). */
   hover?: boolean;
   /**
+   * The axes the host scrolls the document along itself (SPEC §5.3): a
+   * bitmask of SCROLL_VERTICAL and SCROLL_HORIZONTAL; 0, the default, does
+   * not scroll. The wheel, a touchpad, touch and the scrolling keys move
+   * it, and the program hears nothing of it; rect is the box it scrolls in.
+   * It goes out with the document, so a change sends the document again,
+   * which starts at the top. A host without caps.scroll clips the document
+   * as before: a program that must show the rest there scrolls it by clip.
+   */
+  scroll?: number;
+  /**
    * Returns the document. Called only when the document must be sent: the
-   * first time, and again after the surface was deleted or the host lost it.
+   * first time, again after the surface was deleted or the host lost it,
+   * and when its scroll changed.
    */
   doc: () => string;
 }
@@ -188,6 +199,7 @@ export class Session {
   readonly #onMessage: (m: SessionMessage) => void;
   #placed = new Map<string, Placed>(); // on screen
   #hasDoc = new Set<string>(); // sent: on screen or hidden
+  #scroll = new Map<string, number>(); // the axes each document went out with
   #keep = new Map<string, boolean>();
   #seen = new Map<string, number>(); // the last layout that wanted a surface
   #refused = new Set<string>(); // documents refused with EQUOTA, whose placement fails too
@@ -271,9 +283,10 @@ export class Session {
 
   /**
    * Makes the surfaces on screen match want: a new surface gets its document
-   * (attached, q=1) and a placement; a moved or scrolled one is placed again
-   * (only the window inside its clip); one no longer wanted is hidden if it
-   * is kept, or else deleted. What it sends leaves with the next flush. It
+   * (attached, q=1, with its scroll) and a placement; one whose scroll
+   * changed gets its document again, and keeps its placement; a moved or
+   * scrolled one is placed again (only the window inside its clip); one no
+   * longer wanted is hidden if it is kept, or else deleted. What it sends leaves with the next flush. It
    * does nothing until the mode is native, and after close.
    */
   layout(want: Want[]): void {
@@ -290,13 +303,17 @@ export class Session {
       on.push({ s, at });
     }
     for (const { s, at } of on) {
-      if (!this.#hasDoc.has(s.name)) {
-        if (!this.#makeRoom(wanted)) continue; // the host holds no more: not until one goes
-        this.send(doc(s.name, s.doc()));
+      const has = this.#hasDoc.has(s.name);
+      const scroll = s.scroll ?? 0;
+      if (!has || this.#scroll.get(s.name) !== scroll) {
+        if (!has && !this.#makeRoom(wanted)) continue; // the host holds no more: not until one goes
+        this.send(doc(s.name, s.doc(), { scroll }));
         this.counts.docs++;
         this.#hasDoc.add(s.name);
+        this.#scroll.set(s.name, scroll);
         this.#refused.delete(s.name);
-        this.#placed.delete(s.name);
+        // A replaced document keeps its placement (SPEC §5.1).
+        if (!has) this.#placed.delete(s.name);
       }
       const p: Placed = {
         at,
@@ -374,6 +391,7 @@ export class Session {
       this.counts.deletes++;
     }
     this.#hasDoc.delete(name);
+    this.#scroll.delete(name);
     this.#placed.delete(name);
     this.#keep.delete(name);
     this.#seen.delete(name);
