@@ -48,7 +48,8 @@ h.surface("hello-hello")?.text(); // "Hello, HTML in the terminal."
 
 | import | what it is | SDK.md |
 | --- | --- | --- |
-| `@neuroplastio/hotty` | the wire layer: builders, `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`. Pure: no I/O, no dependencies | §3 |
+| `@neuroplastio/hotty` | the wire layer: builders, `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
+| `@neuroplastio/hotty/field` | `Field`, a text field's value and caret edited by SPEC §10.2's actions, for a program that draws its fields in cells | §4.6 |
 | `@neuroplastio/hotty/terminal` | `Terminal`, for a program with a terminal: one that prints documents and exits, asks a question, or streams a chart | §4.1 |
 | `@neuroplastio/hotty/session` | `Session`, for a UI framework's adapter: modes, layout, relayout, limits, messages | §4.3 |
 | `@neuroplastio/hotty/link` | `Link`, what `Terminal` and `Session` stand on: for an environment that reads the terminal itself and hands over what it reads | §4.2 |
@@ -83,6 +84,29 @@ instead of a `Terminal`. The adapter calls `link.osc(seq)` with each OSC,
 which returns whether it was HOTTY's, and `link.da1()` with a DA1 answer it
 does not keep. Detection then decides on the host's reply alone, and is done
 300 ms later. A byte stream goes to `link.bytes(chunk)`.
+
+## Text fields in cells
+
+A program that draws its fields in cells edits them with the keymap it gives
+its surfaces' fields, so a field edits the same on a host and off one. It
+puts `TERMINAL_KEYS` in the `data-keys` of an element that holds its fields,
+and in cells looks each key up in the same keymap:
+
+```ts
+import { INSERT, TERMINAL_KEYS, decodeKeys, resolve } from "@neuroplastio/hotty";
+import { Field } from "@neuroplastio/hotty/field";
+
+const html = `<form data-keys="${TERMINAL_KEYS}"><input id=name></form>`; // on a host
+const keys = resolve(false, TERMINAL_KEYS); // in cells
+const f = new Field();
+for (const key of decodeKeys(read)) {
+  const a = key === undefined ? undefined : keys.lookup(key);
+  if (a === INSERT) f.type(key === "Space" ? " " : key!);
+  else if (a === "submit") submit(f.value);
+  else if (a) f.do(a); // true when the value changed: an input event's worth
+  else onKey(key); // not the field's: the program's own keymap has it
+}
+```
 
 ## Examples
 
@@ -137,8 +161,10 @@ The vectors are the hotty repository's `conformance/vectors.json`, of
 version 0.1, copied to `test/testdata`, and checked against a checkout of
 hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 
-- **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan` and `detect`
-  all run, and none is skipped: the runner declares every `requires`.
+- **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan`, `detect`,
+  `keys`, `keymap` and `edit` all run, and none is skipped: the runner
+  declares every `requires`. Characters are grapheme clusters, from
+  `Intl.Segmenter`, which Node and Bun both have (`graphemes`).
 - **Host section.** The test host runs the commands and inspections of the
   host vectors. It lays nothing out, so the rows it gives `r=auto` are an
   estimate and are not checked. The vectors' pointer and key steps (drags,

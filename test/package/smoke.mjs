@@ -4,7 +4,8 @@
 
 import assert from "node:assert/strict";
 
-import { Decoder, VERSION, doc } from "@neuroplastio/hotty";
+import { Decoder, TERMINAL_KEYS, VERSION, decodeKeys, doc, resolve } from "@neuroplastio/hotty";
+import { Field } from "@neuroplastio/hotty/field";
 import { Link } from "@neuroplastio/hotty/link";
 import { Session } from "@neuroplastio/hotty/session";
 import { Terminal } from "@neuroplastio/hotty/terminal";
@@ -15,6 +16,12 @@ assert.equal(f.result, "complete");
 assert.equal(f.message.get("s"), "card");
 assert.equal(f.message.text(), "<p>hi</p>");
 assert.equal(VERSION, "0.1");
+
+// A field in cells, edited with the keymap its surfaces get.
+const keys = resolve(false, TERMINAL_KEYS);
+const field = new Field({ value: "foo bar" });
+assert.equal(field.do(keys.lookup(decodeKeys("\x17")[0])), true);
+assert.equal(field.value, "foo ");
 
 // A program's test: its Terminal on the test host.
 const h = new Host();
