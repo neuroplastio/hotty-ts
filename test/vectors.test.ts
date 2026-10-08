@@ -1,5 +1,5 @@
 // The conformance vectors' SDK sections (conformance/README.md): wire,
-// build, encode, decode, scan and detect, every one of them.
+// build, encode, decode, scan, detect, keys and keymap, every one of them.
 
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
@@ -30,6 +30,7 @@ const FEATURES = new Set([
   "decode.abort-count",
   "decode.unterminated",
   "scanner.da1",
+  "graphemes",
 ]);
 
 const runs = (v: Any) => (v.requires ?? []).every((r: string) => FEATURES.has(r));
@@ -376,4 +377,20 @@ sections("detect", (v) => {
     assert.ok(det.caps, "no caps");
     match({ v: nul(det.caps.v) }, v.caps, "caps");
   }
+});
+
+// --- keys, keymap --------------------------------------------------------------
+
+sections("keys", (v) => {
+  if ("input" in v) assert.deepEqual(hotty.decodeKeys(v.input).map(nul), v.keys);
+  else assert.equal(nul(hotty.parseKey(v.key)), v.canon);
+});
+
+sections("keymap", (v) => {
+  if (!("lookup" in v)) {
+    assert.equal(hotty.parseKeymap(v.parse ?? hotty.TERMINAL_KEYS).format(), v.format);
+    return;
+  }
+  const m = hotty.resolve(v.multiline, ...(v.terminal_keys ? [hotty.TERMINAL_KEYS] : []), ...v.keys);
+  for (const [key, want] of Object.entries(v.lookup)) assert.equal(nul(m.lookup(key)), want, key);
 });
