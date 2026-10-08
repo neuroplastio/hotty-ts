@@ -204,7 +204,8 @@ function modifiers(field: string): [Modifier[], boolean] {
   const parts = field.split(":");
   const m = parts[0] ? int(parts[0]) : 1;
   const e = parts.length > 1 && parts[1] ? int(parts[1]) : 1;
-  const bits = m - 1;
+  // Absent, empty or below 2: no modifier.
+  const bits = Math.max(m - 1, 0);
   const mods: Modifier[] = [];
   if (bits & 1) mods.push("Shift");
   if (bits & 2) mods.push("Alt");
@@ -431,7 +432,8 @@ export class Keymap {
 /** A `data-keys` value's bindings, without those a host ignores (SPEC §10.2). */
 export function parseKeymap(value: string): Keymap {
   const m = new Keymap();
-  for (const b of value.split(/\s+/)) {
+  // ASCII white space separates bindings; NBSP and the rest do not.
+  for (const b of value.split(/[ \t\n\f\r]+/)) {
     const i = b.lastIndexOf("=");
     if (i >= 0) m.bind(b.slice(0, i), b.slice(i + 1));
   }
