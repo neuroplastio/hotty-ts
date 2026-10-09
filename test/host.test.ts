@@ -389,3 +389,52 @@ describe("Host keys in a field", () => {
     assert.deepEqual(sent(h), ['ev input t=f {"value":"abcx"}', 'ev input t=f {"value":"abycx"}']);
   });
 });
+
+describe("Host drags with steps", () => {
+  const doc_ =
+    "<i id=track data-on=drag data-steps=20>t</i><i id=pad data-on=drag data-steps='0 4'>p</i>" +
+    "<i id=bad data-on=drag data-steps='2.5'>b</i><i id=other data-on=drag>o</i>";
+
+  test("a host whose caps say steps reports where in the element the pointer is, as the test gives it: clamped, measured against the element the drag began on, a drag each time it changes (SPEC §9.1)", () => {
+    const h = new Host({ caps: { steps: true } });
+    h.write(doc("s", doc_) + place("s", { cols: 10, rows: 4 }));
+    h.take();
+    h.dragStartStep("s", "track", 0, 0, 3, 9);
+    h.dragMoveStep("track", 1, 0, 3, 0); // the same element and step: nothing
+    h.dragMoveStep("track", 2, 0, 5, 0); // another step: drag
+    h.dragMoveStep("", 2, 2, 5, 0); // off the track, at the same step
+    h.dragMoveStep("", 9, 2, 99, 0); // past its end: clamped
+    h.dragMove("other", 5, 3); // a move with no step keeps the last
+    h.dragEndStep("", -4, 3, -1, 0);
+    assert.deepEqual(sent(h), [
+      'ev dragstart t=track {"c":0,"r":0,"keys":[],"x":3}',
+      'ev drag t=track {"c":2,"r":0,"keys":[],"x":5}',
+      'ev drag t= {"c":2,"r":2,"keys":[],"x":5}',
+      'ev drag t= {"c":9,"r":2,"keys":[],"x":20}',
+      'ev drag t=other {"c":5,"r":3,"keys":[],"x":20}',
+      'ev dragend t= {"c":-4,"r":3,"keys":[],"x":0}',
+    ]);
+    // Only the axes an element counts; a value that is not one or two whole
+    // numbers counts none.
+    h.dragStartStep("s", "pad", 0, 1, 7, 2);
+    h.dragEndStep("pad", 0, 1, 7, 3);
+    h.dragStartStep("s", "bad", 0, 2, 1, 1);
+    h.dragEnd("bad", 0, 2);
+    assert.deepEqual(sent(h), [
+      'ev dragstart t=pad {"c":0,"r":1,"keys":[],"y":2}',
+      'ev dragend t=pad {"c":0,"r":1,"keys":[],"y":3}',
+      'ev dragstart t=bad {"c":0,"r":2,"keys":[]}',
+      'ev dragend t=bad {"c":0,"r":2,"keys":[]}',
+    ]);
+    const steps = h.events().filter((e) => e.kind.startsWith("drag")).map((e) => [e.drag()?.x, e.drag()?.y]);
+    assert.deepEqual(steps.slice(0, 2), [[3, undefined], [5, undefined]], "Event.drag() reads the steps");
+  });
+
+  test("a host that does not say steps reports none", () => {
+    const h = new Host();
+    h.write(doc("s", doc_) + place("s", { cols: 10, rows: 4 }));
+    h.take();
+    h.dragStartStep("s", "track", 0, 0, 3, 0);
+    assert.deepEqual(sent(h), ['ev dragstart t=track {"c":0,"r":0,"keys":[]}']);
+  });
+});

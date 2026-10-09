@@ -218,6 +218,7 @@ function replyView(r: hotty.Reply) {
 function eventView(e: hotty.Event) {
   const link = e.link();
   const hover = e.hover();
+  const drag = e.drag();
   return {
     surface: e.surface,
     kind: e.kind,
@@ -228,7 +229,7 @@ function eventView(e: hotty.Event) {
     link: link ? { href: link.href, url: nul(link.url) } : null,
     size: nul(e.size()),
     fit_rows: nul(e.fitRows()),
-    drag: nul(e.drag()),
+    drag: drag ? { ...drag, x: nul(drag.x), y: nul(drag.y) } : null,
     hover: hover ? { c: nul(hover.c), r: nul(hover.r), out: hover.out } : null,
     area: nul(e.area()),
   };
@@ -246,6 +247,7 @@ function capsView(c: hotty.Caps, want: Any) {
     net: c.net,
     passthrough: c.passthrough,
     scroll: c.scroll,
+    steps: c.steps,
     host: nul(c.host),
     version: nul(c.version),
     drags: c.drags(),

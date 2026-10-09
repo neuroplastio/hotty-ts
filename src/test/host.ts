@@ -65,6 +65,7 @@ export interface CapsJson {
   net?: Record<string, string[]>;
   passthrough?: boolean;
   scroll?: boolean;
+  steps?: boolean;
   host?: string;
   version?: string;
   [field: string]: unknown;
@@ -120,6 +121,9 @@ interface Drag {
   t: string; // the element under the pointer, as last reported
   c: number;
   r: number; // the cell under the pointer, as last reported
+  n: [number, number]; // the element's data-steps when the drag began: none is 0
+  x: number;
+  y: number; // the step as last reported, along each counted axis
 }
 
 const utf8 = new TextEncoder();
@@ -1138,6 +1142,21 @@ export class Host implements AsyncIterable<Uint8Array> {
    * then dragEnd.
    */
   dragStart(surface: string, id: string, c: number, r: number, keys: string[] = []): void {
+    this.#dragStart(surface, id, c, r, 0, 0, keys);
+  }
+
+  /**
+   * dragStart on an element with data-steps (SPEC §9.1), with the pointer
+   * at step x, y of it. The host lays nothing out, so the test says where in
+   * the element the pointer is: a step past the element's count is clamped
+   * to it, and one along an axis it does not count is ignored. The host
+   * reports steps only when its caps say steps.
+   */
+  dragStartStep(surface: string, id: string, c: number, r: number, x: number, y: number, keys: string[] = []): void {
+    this.#dragStart(surface, id, c, r, x, y, keys);
+  }
+
+  #dragStart(surface: string, id: string, c: number, r: number, x: number, y: number, keys: string[]): void {
     const s = this.#target(surface);
     const el = this.#element(s, id);
     if (s.detached) throw this.#detachedError(s);
@@ -1146,8 +1165,10 @@ export class Host implements AsyncIterable<Uint8Array> {
     const on = closest(el, listens("drag"));
     const rid = attr(on, "id");
     if (on && rid !== undefined) {
-      this.#drag = { s, start: on, id: rid, t: rid, c, r };
-      this.#event(s, "dragstart", rid, dragDetail(c, r, keys));
+      const d: Drag = { s, start: on, id: rid, t: rid, c, r, n: this.#caps.steps === true ? steps(on) : [0, 0], x: 0, y: 0 };
+      [d.x, d.y] = clampStep(d, x, y);
+      this.#drag = d;
+      this.#event(s, "dragstart", rid, dragDetail(d, c, r, keys));
     }
     const f = closest(el, focusable);
     if (f) this.#takeKeyboard(s, f, true);
@@ -1162,12 +1183,25 @@ export class Host implements AsyncIterable<Uint8Array> {
    * cell does.
    */
   dragMove(id: string, c: number, r: number, keys: string[] = []): void {
+    const d = this.#drag;
+    if (!d) throw new HostError("no-drag", "no drag is in progress");
+    this.#dragMove(id, c, r, d.x, d.y, keys);
+  }
+
+  /**
+   * dragMove with the pointer at step x, y of the element the drag began on,
+   * wherever the pointer is (dragStartStep): drag also when the step changes.
+   */
+  dragMoveStep(id: string, c: number, r: number, x: number, y: number, keys: string[] = []): void {
+    this.#dragMove(id, c, r, x, y, keys);
+  }
+
+  #dragMove(id: string, c: number, r: number, x: number, y: number, keys: string[]): void {
     const [d, t] = this.#dragOver(id);
-    if (t === d.t && (t !== "" || (c === d.c && r === d.r))) return;
-    d.t = t;
-    d.c = c;
-    d.r = r;
-    this.#event(d.s, "drag", t, dragDetail(c, r, keys));
+    [x, y] = clampStep(d, x, y);
+    if (t === d.t && (t !== "" || (c === d.c && r === d.r)) && x === d.x && y === d.y) return;
+    Object.assign(d, { t, c, r, x, y });
+    this.#event(d.s, "drag", t, dragDetail(d, c, r, keys));
   }
 
   /**
@@ -1176,9 +1210,21 @@ export class Host implements AsyncIterable<Uint8Array> {
    * ends there and reports clicks.
    */
   dragEnd(id: string, c: number, r: number, keys: string[] = []): void {
+    const d = this.#drag;
+    if (!d) throw new HostError("no-drag", "no drag is in progress");
+    this.#dragEnd(id, c, r, d.x, d.y, keys);
+  }
+
+  /** dragEnd with the pointer at step x, y of the element the drag began on (dragStartStep). */
+  dragEndStep(id: string, c: number, r: number, x: number, y: number, keys: string[] = []): void {
+    this.#dragEnd(id, c, r, x, y, keys);
+  }
+
+  #dragEnd(id: string, c: number, r: number, x: number, y: number, keys: string[]): void {
     const [d, t] = this.#dragOver(id);
+    [d.x, d.y] = clampStep(d, x, y);
     this.#drag = undefined;
-    this.#event(d.s, "dragend", t, dragDetail(c, r, keys));
+    this.#event(d.s, "dragend", t, dragDetail(d, c, r, keys));
     if (t === d.id && reportsClick(d.start)) {
       const v = attr(d.start, "value");
       this.#event(d.s, "click", d.id, v === undefined ? undefined : { value: v });
@@ -1205,7 +1251,7 @@ export class Host implements AsyncIterable<Uint8Array> {
   #cutDrag() {
     const d = this.#drag!;
     this.#drag = undefined;
-    this.#event(d.s, "dragend", "", dragDetail(d.c, d.r, []));
+    this.#event(d.s, "dragend", "", dragDetail(d, d.c, d.r, []));
   }
 
   /**
@@ -1340,8 +1386,26 @@ function ctlString(m: Message): string {
 
 // A drag event's detail: the cell, and the modifier keys in the order SPEC
 // §9.1 gives them.
-function dragDetail(c: number, r: number, keys: string[]) {
-  return { c, r, keys: ["shift", "ctrl", "alt", "meta"].filter((k) => keys.includes(k)) };
+// A drag event's detail: the cell, the modifier keys in SPEC §9.1's order,
+// and the step along each axis the element counts.
+function dragDetail(d: Drag, c: number, r: number, keys: string[]) {
+  const detail: Record<string, unknown> = { c, r, keys: ["shift", "ctrl", "alt", "meta"].filter((k) => keys.includes(k)) };
+  if (d.n[0] > 0) detail.x = d.x;
+  if (d.n[1] > 0) detail.y = d.y;
+  return detail;
+}
+
+// A step kept within the element's counts, 0 along an axis it does not count.
+function clampStep(d: Drag, x: number, y: number): [number, number] {
+  return [Math.min(Math.max(x, 0), d.n[0]), Math.min(Math.max(y, 0), d.n[1])];
+}
+
+// An element's data-steps (SPEC §9.1): "<x>" or "<x> <y>", whole numbers
+// from 0 up; anything else is none.
+function steps(el: El): [number, number] {
+  const f = (attr(el, "data-steps") ?? "").split(/[ \t\n\f\r]+/).filter((v) => v !== "");
+  if (f.length < 1 || f.length > 2 || !f.every((v) => /^[0-9]+$/.test(v))) return [0, 0];
+  return [Number(f[0]), Number(f[1] ?? 0)];
 }
 
 // A link's URL against the document's base (SPEC §7.3), "" when it is under

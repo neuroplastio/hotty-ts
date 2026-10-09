@@ -145,6 +145,15 @@ export interface Drag {
   r: number;
   /** The modifier keys held: "shift", "ctrl", "alt" and "meta", in that order. */
   keys: string[];
+  /**
+   * Where in the dragged element the pointer is, for an element with
+   * data-steps (SPEC §9.1): a step from 0 to its count, along its width (x)
+   * and down its height (y), measured against the element the drag started
+   * on wherever the pointer is. Absent along an axis the element does not
+   * count; 0 is a step like any other.
+   */
+  x?: number;
+  y?: number;
 }
 
 /** Where a hover event says the pointer is (SPEC §9.4). */
@@ -245,12 +254,16 @@ export class Event {
     return this.kind === "fit" && isInt(r) && r >= 1 ? r : undefined;
   }
 
-  /** A dragstart's, drag's or dragend's cell and keys. */
+  /** A dragstart's, drag's or dragend's cell and keys, and its steps. */
   drag(): Drag | undefined {
     if (this.kind !== "dragstart" && this.kind !== "drag" && this.kind !== "dragend") return undefined;
-    const { c, r, keys } = this.#d;
+    const { c, r, keys, x, y } = this.#d;
     if (!isInt(c) || !isInt(r)) return undefined;
-    return { c, r, keys: Array.isArray(keys) ? keys.filter(isStr) : [] };
+    const drag: Drag = { c, r, keys: Array.isArray(keys) ? keys.filter(isStr) : [] };
+    // A step that is not a whole number is absent, and the rest stands.
+    if (isInt(x)) drag.x = x;
+    if (isInt(y)) drag.y = y;
+    return drag;
   }
 
   /**
@@ -302,6 +315,8 @@ export class Caps {
   readonly passthrough: boolean;
   /** Whether a document can ask to scroll (SPEC §5.1, §5.3); a host that does not say clips. */
   readonly scroll: boolean;
+  /** Whether a drag of an element with data-steps says where in it the pointer is (SPEC §9.1). */
+  readonly steps: boolean;
   /** A name for the implementation, when it gives one. */
   readonly host: string | undefined;
   /** The implementation's version, with host. */
@@ -324,6 +339,7 @@ export class Caps {
     if (isObj(raw.net)) for (const [k, v] of Object.entries(raw.net)) if (Array.isArray(v)) this.net[k] = v.filter(isStr);
     this.passthrough = raw.passthrough === true;
     this.scroll = raw.scroll === true;
+    this.steps = raw.steps === true;
     this.host = isStr(raw.host) ? raw.host : undefined;
     this.version = isStr(raw.version) ? raw.version : undefined;
   }
