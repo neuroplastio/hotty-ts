@@ -297,6 +297,19 @@ describe("Host keys", () => {
     assert.deepEqual(sent(h), ['ev change t=f {"value":"yx"}', 'ev change t=free {"value":"b"}']);
   });
 
+  test("with no element focused there is no keymap: no data-keys are read, and every key but Tab reaches the program (SPEC §10.2)", () => {
+    const { h, s } = surface('<div data-keys="ArrowDown=line-next Enter=submit Space=program"><p>text</p></div>');
+    h.write(focus("s"));
+    h.take();
+    for (const k of ["ArrowDown", "Enter", "Space", "a"]) assert.equal(h.key(k), false, k);
+    assert.deepEqual(sent(h), ["\x1b[B\r a"]);
+    assert.equal(h.keyboard, s);
+    assert.equal(s.focused(), "");
+    // Tab finds nothing to focus, and gives the keyboard back.
+    h.key("Tab");
+    assert.deepEqual(sent(h), ["ev blur t="]);
+  });
+
   test("a select picks with its keys, past disabled options, by an option's label; each pick sends input and change at once (SPEC §10.2)", () => {
     const { h } = surface('<select id=s data-on=input><option>a<option label=Bee>b<option disabled>c<option>d</select>');
     h.write(focus("s", "s"));

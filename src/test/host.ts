@@ -935,6 +935,9 @@ export class Host implements AsyncIterable<Uint8Array> {
    *   disabled ones; a pick sends input (with data-on~=input) and change at
    *   once. Space and Enter do nothing: this host shows no list.
    *
+   * With no element focused there is no keymap: the document's `data-keys`
+   * are not read, and every key but Tab is the program's.
+   *
    * Every other key reaches the program, as typed (type) when it has a
    * terminal encoding here: characters, Enter, Tab, Escape, Backspace, the
    * arrows and the editing keys, and Control or Alt with a character. So
@@ -957,7 +960,7 @@ export class Host implements AsyncIterable<Uint8Array> {
       return true;
     }
     const el = s.focusedNode;
-    if (!el) return false;
+    if (!el) return false; // no element focused, no keymap (SPEC §10.2)
     if (textField(el)) return this.#fieldKey(s, el, key);
     // Any other element's keymap gives keys to the program, and does
     // nothing else.
