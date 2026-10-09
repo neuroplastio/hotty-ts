@@ -373,6 +373,8 @@ const UNBINDABLE = new Set(["Tab", "Shift+Tab", "Escape"]);
  * Bindings of keys to actions (SPEC §10.2). {@link parseKeymap} reads one
  * from `data-keys`; {@link resolve} makes the one a field uses, whose
  * {@link Keymap.lookup} says what the field does with a key.
+ * {@link Keymap.program} says whether any focused element's keymap gives a
+ * key to the program.
  */
 export class Keymap {
   readonly #bindings = new Map<string, Action>();
@@ -411,21 +413,49 @@ export class Keymap {
    * reaches the program, or Tab moves focus).
    */
   lookup(key: string): Action | typeof INSERT | undefined {
+    const b = this.#bound(key);
+    if (b === undefined || UNBINDABLE.has(b.key)) return undefined;
+    const { mods, value, action: a } = b;
+    if (a !== undefined) return a === "program" || (MULTILINE_ACTIONS.has(a) && !this.multiline) ? undefined : a;
+    if (isChar(value) && !mods.some((m) => m !== "Shift")) return INSERT;
+    return undefined;
+  }
+
+  /**
+   * Whether the keymap gives a key to the program: binds it to `program`,
+   * or, for a key with Shift that no binding names, binds it without Shift
+   * (SPEC §10.2, keys for the program).
+   *
+   * Every focused element has a keymap, and outside a text field `program`
+   * is the only action it gives. A host reads the element's as a field's,
+   * from the `data-keys` values of the elements from the root down to it,
+   * but with no default keymap: `parseKeymap(values.join(" "))`. It gives a
+   * key the keymap binds to `program` to the program before the element
+   * uses it, and before the surface scrolls with it; a nearer binding of the
+   * key to another action takes it back. In a field, {@link lookup} says as
+   * much.
+   */
+  program(key: string): boolean {
+    return this.#bound(key)?.action === "program";
+  }
+
+  // The action the keymap binds a key to, with the key, canonical, and its
+  // parts: a key with Shift that no binding names is looked up without
+  // Shift. Undefined when the key does not parse.
+  #bound(key: string): { key: string; mods: Modifier[]; value: string; action: Action | undefined } | undefined {
     const k = parseKey(key);
-    if (k === undefined || UNBINDABLE.has(k)) return undefined;
+    if (k === undefined) return undefined;
     const [mods, value] = splitKey(k)!;
-    let a = this.#bindings.get(k);
-    if (a === undefined && mods.includes("Shift")) {
-      a = this.#bindings.get(
+    let action = this.#bindings.get(k);
+    if (action === undefined && mods.includes("Shift")) {
+      action = this.#bindings.get(
         keyName(
           mods.filter((m) => m !== "Shift"),
           value,
         ),
       );
     }
-    if (a !== undefined) return a === "program" || (MULTILINE_ACTIONS.has(a) && !this.multiline) ? undefined : a;
-    if (isChar(value) && !mods.some((m) => m !== "Shift")) return INSERT;
-    return undefined;
+    return { key: k, mods, value, action };
   }
 }
 
