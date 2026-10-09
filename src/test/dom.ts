@@ -5,6 +5,7 @@
 import { type DefaultTreeAdapterTypes as T, parse, parseFragment, serialize } from "parse5";
 
 import type { Placement } from "../commands.ts";
+import type { Field } from "../field.ts";
 import type { Area } from "../messages.ts";
 
 type Node = T.Node;
@@ -240,6 +241,7 @@ export class Surface {
   values: Map<Node, string> = new Map();
   checked: Map<Node, boolean> = new Map();
   edited: Set<Node> = new Set(); // text controls edited since their last commit
+  fields: Map<Node, Field> = new Map(); // text fields' carets, once keys edit them
   focusedNode: Element | undefined;
   keyb = false; // the surface has the keyboard
 
@@ -254,6 +256,7 @@ export class Surface {
     this.values = new Map();
     this.checked = new Map();
     this.edited = new Set();
+    this.fields = new Map();
     this.focusedNode = undefined;
     this.keyb = false;
   }
@@ -374,6 +377,7 @@ export class Surface {
     if (key === "value" && control(n) && !box(n)) {
       this.values.delete(n);
       this.edited.delete(n);
+      this.fields.delete(n);
     } else if (key === "checked" && box(n)) {
       this.checked.delete(n);
     } else if (key === "selected" && n.tagName === "option") {
@@ -388,6 +392,7 @@ export class Surface {
       this.values.delete(c);
       this.checked.delete(c);
       this.edited.delete(c);
+      this.fields.delete(c);
       if (c === this.focusedNode) {
         this.focusedNode = undefined;
         this.keyb = false;

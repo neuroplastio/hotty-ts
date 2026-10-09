@@ -3,6 +3,8 @@
 import { MAX_SIZE, OPS } from "../constants.ts";
 import { Decoder } from "../decoder.ts";
 import { encode } from "../encode.ts";
+import { Field } from "../field.ts";
+import { INSERT, parseKey, parseKeymap, resolve as resolveKeymap } from "../keys.ts";
 import { type Area, Caps, type Event, type Message } from "../messages.ts";
 import { validName } from "../names.ts";
 import {
@@ -21,6 +23,7 @@ import {
   textOf,
   walk,
 } from "./dom.ts";
+import { editingHost, keymaps, keySequence, keyText, splitName, textField, textInput } from "./keys.ts";
 import { Screen } from "./screen.ts";
 
 type El = NonNullable<ReturnType<Surface["byId"]>>;
@@ -737,7 +740,9 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#click(s, el);
   }
 
-  #click(s: Surface, el: El) {
+  // A click on el: by the pointer, which presses first, or by the keyboard
+  // (key), which does not.
+  #click(s: Surface, el: El, pointer = true) {
     const a = closest(el, (n) => n.tagName === "a");
     if (a && attr(a, "href") !== undefined && hyperlink(a)) {
       const u = resolve(s, a);
@@ -745,7 +750,7 @@ export class Host implements AsyncIterable<Uint8Array> {
       return;
     }
     if (s.detached) throw this.#detachedError(s);
-    if (s.placement.press) this.#pressAt(s, el);
+    if (pointer && s.placement.press) this.#pressAt(s, el);
     const f = closest(el, focusable);
     if (f) this.#takeKeyboard(s, f, true);
     else if (this.#keyboard) this.#blur(this.#keyboard); // a click on what takes no focus (SPEC §10.1)
@@ -841,7 +846,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#event(s, "change", id, { checked: on, value: s.valueOf(el) });
   }
 
-  /** Picks an option of a select by its value: change comes at once. */
+  /** Picks an option of a select by its value, as from its list: input (with data-on~=input) and change come at once. */
   choose(surface: string, id: string, value: string): void {
     const s = this.#target(surface);
     const el = this.#element(s, id);
@@ -853,8 +858,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     });
     if (!found) throw new HostError("not-control", `no option ${JSON.stringify(value)}`);
     this.#takeKeyboard(s, el, true);
-    s.values.set(el, value);
-    this.#event(s, "change", id, { value });
+    this.#pick(s, el, value);
   }
 
   /**
@@ -898,6 +902,196 @@ export class Host implements AsyncIterable<Uint8Array> {
     const s = this.#target(surface);
     if (s.detached) throw this.#detachedError(s);
     if (s.keyb) this.#blur(s);
+  }
+
+  // --- keys (SPEC §10.2) ---------------------------------------------------------
+
+  /**
+   * Types a key as the user does, and does with it what SPEC §10.2 has a
+   * host do while a surface has the keyboard. The key is named as SPEC §10.4
+   * names it: a W3C UI Events key value after its modifiers, joined by "+":
+   * "a", "A", "Space", "Enter", "Tab", "Shift+Tab", "Backspace",
+   * "ArrowDown", "Escape", "Control+s". Returns whether a surface used it.
+   *
+   * Tab and Shift+Tab move focus among the surface's focusable elements in
+   * tree order, those with a negative tabindex and those in an inert subtree
+   * left out; past the last, or before the first, the surface loses the
+   * keyboard (blur). A text field (a text-like input, a textarea, an editing
+   * host) does what its keymap says (resolve, with the `data-keys` of the
+   * elements from the root to it): it edits its value at a caret this host
+   * keeps, as a Field does, with input for each edit (data-on~=input);
+   * submit commits it and submits its form; characters type.
+   *
+   * Any other element has a keymap too, read the same way but with no
+   * default keymap (Keymap.program): a key it binds to `program` reaches the
+   * program, and its other bindings do nothing. The element takes the other
+   * keys of its row of the table, unmodified or with Shift only:
+   * - a button, a link, a summary: Space and Enter click it;
+   * - a checkbox or a radio button: Space checks it, Enter submits its form;
+   * - a date or time input: the keys a text input's default keymap binds,
+   *   and characters; the arrows up and down and the page keys are used;
+   * - a select: the arrows, Home and End pick an option, the page keys as far
+   *   as Home and End, a character the next option its label starts, past
+   *   disabled ones; a pick sends input (with data-on~=input) and change at
+   *   once. Space and Enter do nothing: this host shows no list.
+   *
+   * Every other key reaches the program, as typed (type) when it has a
+   * terminal encoding here: characters, Enter, Tab, Escape, Backspace, the
+   * arrows and the editing keys, and Control or Alt with a character. So
+   * does every key while no surface has the keyboard. The host lays nothing
+   * out, so no key scrolls.
+   */
+  key(key: string): boolean {
+    const s = this.#keyboard;
+    if (s && !s.detached && this.#useKey(s, key)) return true;
+    const seq = keySequence(key);
+    if (seq !== "") this.#send(seq);
+    return false;
+  }
+
+  #useKey(s: Surface, key: string): boolean {
+    const [mods, name] = splitName(key);
+    const shiftOnly = mods.every((m) => m === "Shift");
+    if (name === "Tab" && shiftOnly) {
+      this.#tab(s, mods.length > 0);
+      return true;
+    }
+    const el = s.focusedNode;
+    if (!el) return false;
+    if (textField(el)) return this.#fieldKey(s, el, key);
+    // Any other element's keymap gives keys to the program, and does
+    // nothing else.
+    if (parseKeymap(keymaps(el).join(" ")).program(key)) return false;
+    if (!shiftOnly) return false;
+    if (textInput(el)) {
+      // A date or time input.
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown"].includes(name)) return true;
+      return this.#fieldKey(s, el, key);
+    }
+    if (el.tagName === "select") return this.#selectKey(s, el, name);
+    if (box(el)) {
+      if (name === " ") this.#toggle(s, el);
+      else if (name === "Enter") {
+        const form = closest(el, (n) => n.tagName === "form");
+        if (form) this.#submit(s, form, undefined);
+      } else return false;
+      return true;
+    }
+    if (reportsClick(el) && (el.tagName !== "a" || !hyperlink(el))) {
+      if (name !== " " && name !== "Enter") return false;
+      try {
+        this.#click(s, el, false);
+      } catch (e) {
+        if (!(e instanceof HostError)) throw e; // nothing with an id reports it
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // Gives a key to a text field, which does what its keymap says (SPEC
+  // §10.2). A date or time input has the default keymap only.
+  #fieldKey(s: Surface, el: El, key: string): boolean {
+    const multi = el.tagName === "textarea" || editingHost(el);
+    let f = s.fields.get(el);
+    if (!f) {
+      // The caret starts at the end of the value.
+      const password = (attr(el, "type") ?? "").toLowerCase() === "password";
+      f = new Field({ value: s.valueOf(el), multiline: multi, password });
+      s.fields.set(el, f);
+    }
+    f.value = s.valueOf(el);
+    const a = resolveKeymap(multi, ...(textField(el) ? keymaps(el) : [])).lookup(key);
+    if (a === undefined) return false;
+    if (a === "submit") {
+      const form = closest(el, (n) => n.tagName === "form");
+      if (form) {
+        this.#commit(s);
+        this.#submit(s, form, undefined);
+      }
+      return true;
+    }
+    if (a === INSERT ? f.type(keyText(parseKey(key)!)) : f.do(a)) this.#typeInto(s, el, f.value);
+    return true;
+  }
+
+  // Moves focus to the next focusable element, or the previous one.
+  #tab(s: Surface, back: boolean) {
+    const order: El[] = [];
+    walk(s.doc, (n) => {
+      if (!isElement(n) || !focusable(n) || closest(n, (p) => attr(p, "inert") !== undefined)) return;
+      const t = attr(n, "tabindex");
+      if (t !== undefined && /^-?\d+$/.test(t) && Number(t) < 0) return;
+      order.push(n);
+    });
+    let i = s.focusedNode ? order.indexOf(s.focusedNode) : -1;
+    if (i < 0) i = back ? order.length - 1 : 0;
+    else i += back ? -1 : 1;
+    if (i < 0 || i >= order.length) this.#blur(s);
+    else this.#takeKeyboard(s, order[i]!, true);
+  }
+
+  // Sets a text control's value as typing does.
+  #typeInto(s: Surface, el: El, v: string) {
+    s.values.set(el, v);
+    s.edited.add(el);
+    const id = attr(el, "id");
+    if (id !== undefined && listens("input")(el)) this.#event(s, "input", id, { value: v });
+  }
+
+  // Space on a box: a checkbox flips, a radio button is chosen.
+  #toggle(s: Surface, el: El) {
+    const on = !s.isChecked(el);
+    if ((attr(el, "type") ?? "").toLowerCase() === "radio") {
+      if (!on) return;
+      const name = attr(el, "name") ?? "";
+      const scope: AnyNode = closest(el, (n) => n.tagName === "form") ?? s.doc;
+      walk(scope, (n) => {
+        if (n === el || !isElement(n) || !box(n)) return;
+        if ((attr(n, "type") ?? "").toLowerCase() === "radio" && name !== "" && attr(n, "name") === name) s.checked.set(n, false);
+      });
+    }
+    s.checked.set(el, on);
+    const id = attr(el, "id");
+    if (id !== undefined) this.#event(s, "change", id, { checked: on, value: s.valueOf(el) });
+  }
+
+  // A key on a select.
+  #selectKey(s: Surface, el: El, name: string): boolean {
+    const vals: string[] = [];
+    const labels: string[] = [];
+    walk(el, (o) => {
+      if (!isElement(o) || o.tagName !== "option" || attr(o, "disabled") !== undefined) return;
+      vals.push(attr(o, "value") ?? textOf(o));
+      labels.push(attr(o, "label") ?? textOf(o));
+    });
+    const i = vals.indexOf(s.valueOf(el));
+    let pick = -1;
+    if ([...name].length === 1 && name !== " ") {
+      for (let k = 1; k <= vals.length; k++) {
+        const j = (i + k) % vals.length;
+        if (labels[j]!.toLowerCase().startsWith(name.toLowerCase())) {
+          pick = j;
+          break;
+        }
+      }
+    } else if (name === "ArrowDown") pick = Math.min(i + 1, vals.length - 1);
+    else if (name === "ArrowUp") pick = Math.max(i - 1, 0);
+    else if (name === "Home" || name === "PageUp") pick = 0;
+    else if (name === "End" || name === "PageDown") pick = vals.length - 1;
+    else if (name !== " " && name !== "Enter") return false;
+    if (pick >= 0 && pick < vals.length && pick !== i) this.#pick(s, el, vals[pick]!);
+    return true;
+  }
+
+  // Picks a select's option by its value: input, with data-on~=input, and
+  // change come at once, as a browser's select sends them (SPEC §10.2).
+  #pick(s: Surface, el: El, v: string) {
+    s.values.set(el, v);
+    const id = attr(el, "id");
+    if (id === undefined) return;
+    if (listens("input")(el)) this.#event(s, "input", id, { value: v });
+    this.#event(s, "change", id, { value: v });
   }
 
   /**

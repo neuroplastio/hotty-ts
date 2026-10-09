@@ -165,12 +165,13 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
   `keys`, `keymap` and `edit` all run, and none is skipped: the runner
   declares every `requires`. Characters are grapheme clusters, from
   `Intl.Segmenter`, which Node and Bun both have (`graphemes`).
-- **Host section.** The test host runs the commands and inspections of the
-  host vectors. It lays nothing out, so the rows it gives `r=auto` are an
-  estimate and are not checked. The vectors' pointer and key steps (drags,
-  presses, hover, area, scrolling), and the events that follow from a
-  layout, are not run: a vector whose every check is in such steps is
-  reported as skipped.
+- **Host section.** The test host runs the commands, the inspections and
+  the keys of the host vectors (`Host.key`, SPEC §10.2). It lays nothing
+  out, so the rows it gives `r=auto` are an estimate and are not checked,
+  and an event's `area` is not either. The vectors' pointer steps (drags,
+  presses, hover), the keys of a vector that has them or that requires
+  something (scrolling), and the events that follow from a layout, are not
+  run: a vector whose every check is in such steps is reported as skipped.
 
 ## Development
 
