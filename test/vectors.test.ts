@@ -389,6 +389,12 @@ sections("keys", (v) => {
 });
 
 sections("keymap", (v) => {
+  if ("program" in v) {
+    // An element's keymap outside a text field: no default keymap.
+    const m = hotty.parseKeymap(v.keys.join(" "));
+    for (const [key, want] of Object.entries(v.program)) assert.equal(m.program(key), want, key);
+    return;
+  }
   if (!("lookup" in v)) {
     assert.equal(hotty.parseKeymap(v.parse ?? hotty.TERMINAL_KEYS).format(), v.format);
     return;
