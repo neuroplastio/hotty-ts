@@ -18,6 +18,12 @@ export type DetectState = "detecting" | "native" | "text";
 export interface DetectorOptions {
   /** The query's number; 1 by default. */
   n?: number;
+  /**
+   * Ask for a late answer (SPEC §4): the first reply that answers the query
+   * once the state is text makes the terminal a host, with its
+   * capabilities. Still decided and done.
+   */
+  late?: boolean;
 }
 
 /**
@@ -28,6 +34,8 @@ export interface DetectorOptions {
 export class Detector {
   /** The query's number. */
   readonly n: number;
+  /** Whether the query asks for a late answer. */
+  readonly late: boolean;
   state: DetectState = "detecting";
   /** The host's capabilities, when native. */
   caps: Caps | undefined;
@@ -38,9 +46,11 @@ export class Detector {
   #timeout: number | undefined;
   #grace: number | undefined;
   #after: number | undefined;
+  #lateTaken = false;
 
   constructor(options: DetectorOptions = {}) {
     this.n = options.n ?? 1;
+    this.late = options.late ?? false;
   }
 
   /** When to call tick next; undefined before start and once done. */
@@ -53,7 +63,7 @@ export class Detector {
   /** Starts detection, and returns the query to send, with its DA1 fence. */
   start(now: number): string {
     this.#timeout = now + DETECT_TIMEOUT;
-    return query(this.n);
+    return query(this.n, { late: this.late });
   }
 
   #fire(now: number) {
@@ -90,8 +100,9 @@ export class Detector {
 
   /**
    * A reply arrived. Returns whether it answers the query (`a=ok`, `re=q`,
-   * the query's n): it is detection's whenever it arrives, and a late one
-   * changes nothing.
+   * the query's n): it is detection's whenever it arrives. A late one
+   * changes nothing, unless the query asked for it: then the first makes
+   * the terminal a host.
    */
   reply(r: Reply, now: number): boolean {
     this.#fire(now);
@@ -101,6 +112,10 @@ export class Detector {
       this.decided = true;
       this.caps = r.caps();
       this.#after = Math.min(now + DETECT_AFTER_REPLY, this.#timeout ?? Infinity);
+    } else if (this.state === "text" && this.late && !this.#lateTaken) {
+      this.#lateTaken = true;
+      this.state = "native";
+      this.caps = r.caps();
     }
     return true;
   }

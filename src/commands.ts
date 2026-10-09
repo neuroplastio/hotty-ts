@@ -92,13 +92,35 @@ function command(ctl: Control, payload: Uint8Array | string | undefined, def: Qu
   return encode(ctl, payload);
 }
 
+/** Options of {@link query}. */
+export interface QueryOptions {
+  /**
+   * Ask for a late answer (`late=1`, SPEC §4): what passes HOTTY through
+   * and has no host yet, such as a multiplexer's pane with no terminal
+   * attached, may answer once there is one. {@link withdrawLate} takes it
+   * back.
+   */
+  late?: boolean;
+}
+
 /**
  * Asks whether the terminal is a HOTTY host, fenced by Primary Device
  * Attributes (SPEC §4): a host replies to the query, numbered n, before the
  * DA1 answer every terminal sends.
  */
-export function query(n = 1): string {
-  return encode([["a", "q"], ["n", n]]) + "\x1b[c";
+export function query(n = 1, opts?: QueryOptions): string {
+  const ctl: [string, string | number][] = [["a", "q"], ["n", n]];
+  if (opts?.late) ctl.push(["late", 1]);
+  return encode(ctl) + "\x1b[c";
+}
+
+/**
+ * Withdraws a query that asked for a late answer (SPEC §4): `a=q:q=2`, a
+ * query that wants no answer and takes the held one's place, so that no
+ * answer reaches whatever reads the terminal next. It has no fence.
+ */
+export function withdrawLate(): string {
+  return encode([["a", "q"], ["q", NO_REPLY]]);
 }
 
 /**

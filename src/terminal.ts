@@ -72,6 +72,8 @@ export interface TerminalOptions {
   size?: () => Size | undefined;
   /** What detect answers without asking: the terminal is known to be a host, and with what capabilities. */
   known?: Known;
+  /** Ask for a late answer (SPEC §4), as LinkOptions.late. */
+  late?: boolean;
   /** Puts the terminal in raw mode, and returns what restores it; none for a terminal that is always raw. */
   raw?: () => () => void;
   /** What close does besides: gives the terminal's files back. */
@@ -196,7 +198,13 @@ export class Terminal extends Link {
    * file (a terminal in a page).
    */
   constructor(options: TerminalOptions) {
-    super({ write: (s) => void options.output.write(s), name: options.name, known: options.known, clock: options.clock });
+    super({
+      write: (s) => void options.output.write(s),
+      name: options.name,
+      known: options.known,
+      late: options.late,
+      clock: options.clock,
+    });
     this.#input = options.input;
     this.#size = options.size;
     this.#raw = options.raw;
@@ -399,9 +407,9 @@ export class Terminal extends Link {
 
   /**
    * Gives the terminal back as it was (its mode, its files) and stops
-   * reading it; the input stream ends. It sends nothing: what is left on
-   * the screen, and the replies not read, are the program's to settle
-   * first (SDK.md §2.6).
+   * reading it; the input stream ends. It sends nothing but the withdrawal
+   * of a late query no answer came to: what is left on the screen, and the
+   * replies not read, are the program's to settle first (SDK.md §2.6).
    */
   override close(): void {
     if (this.closed) return;

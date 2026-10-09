@@ -131,6 +131,49 @@ describe("Session", () => {
     assert.deepEqual(h.errors(), []);
   });
 
+  test("with late, a late answer makes a text Session native: ready again, then relayout (SPEC §4)", async () => {
+    const h = new Host({ text: true });
+    const clock = new FakeClock();
+    const t = new Terminal({ input: h, output: h, name: "app", size: () => h, clock });
+    const msgs: SessionMessage[] = [];
+    const s = new Session({ link: t, onMessage: (m) => msgs.push(m), late: true });
+    s.detect();
+    await clock.advance(150);
+    assert.deepEqual(msgs.splice(0), [{ kind: "ready", mode: "text" }]);
+    assert.equal(h.commands()[0]!.get("late"), "1", "the query asks for a late answer");
+    h.becomeHost(); // a terminal that is a host attaches
+    await settle();
+    assert.equal(s.mode, "native");
+    assert.equal(s.caps?.host, "hotty-ts-test");
+    assert.deepEqual(
+      msgs.splice(0).map((m) => m.kind),
+      ["ready", "relayout"],
+    );
+    assert.equal(await t.detect(), true, "detect answers with the late answer");
+    s.layout([card("a", 0, 0)]);
+    h.write(s.flush());
+    assert.ok(h.surface("a")?.placed);
+    assert.equal(s.close().includes("a=q"), false, "answered: nothing to withdraw");
+    assert.deepEqual(h.errors(), []);
+  });
+
+  test("with late and no answer, close withdraws the query, and a host that attaches after answers nothing (SPEC §4)", async () => {
+    const h = new Host({ text: true });
+    const clock = new FakeClock();
+    const t = new Terminal({ input: h, output: h, name: "app", size: () => h, clock });
+    const msgs: SessionMessage[] = [];
+    const s = new Session({ link: t, onMessage: (m) => msgs.push(m), late: true });
+    s.detect();
+    await clock.advance(150);
+    h.write(s.close());
+    const q = h.commands().at(-1)!;
+    assert.deepEqual([q.get("a"), q.get("q"), q.get("late")], ["q", "2", undefined], "a=q:q=2 takes the held query's place");
+    h.becomeHost();
+    await settle();
+    assert.equal(h.replies().length, 0, "the withdrawn query is not answered");
+    assert.equal(s.mode, "text");
+  });
+
   test("in a terminal that is not a host it is text, and sends nothing", async () => {
     const { h, s, msgs, clock, frame } = setup({ text: true });
     s.detect();

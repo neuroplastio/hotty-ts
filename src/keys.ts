@@ -6,7 +6,23 @@ export const MODIFIERS = ["Control", "Alt", "Meta", "Shift"] as const;
 /** One of {@link MODIFIERS}. */
 export type Modifier = (typeof MODIFIERS)[number];
 
-/** A text field's actions (SPEC §10.2). */
+/** The scroll actions (SPEC §10.2, scrolling keys), which a text field's keymap leaves out. */
+export const SCROLL_ACTIONS = [
+  "scroll-up",
+  "scroll-down",
+  "scroll-left",
+  "scroll-right",
+  "scroll-page-up",
+  "scroll-page-down",
+  "scroll-half-page-up",
+  "scroll-half-page-down",
+  "scroll-start",
+  "scroll-end",
+] as const;
+/** One of {@link SCROLL_ACTIONS}. */
+export type ScrollAction = (typeof SCROLL_ACTIONS)[number];
+
+/** The actions a keymap binds (SPEC §10.2): a text field's, `program`, and the scroll actions. */
 export const ACTIONS = [
   "char-backward",
   "char-forward",
@@ -29,6 +45,7 @@ export const ACTIONS = [
   "newline",
   "submit",
   "program",
+  ...SCROLL_ACTIONS,
 ] as const;
 /** One of {@link ACTIONS}. */
 export type Action = (typeof ACTIONS)[number];
@@ -367,6 +384,7 @@ export function decodeKeys(input: Uint8Array | string): (string | undefined)[] {
 // --- keymaps (SPEC §10.2) ----------------------------------------------------
 
 const isAction = (a: string): a is Action => (ACTIONS as readonly string[]).includes(a);
+const isScroll = (a: string): a is ScrollAction => (SCROLL_ACTIONS as readonly string[]).includes(a);
 const UNBINDABLE = new Set(["Tab", "Shift+Tab", "Escape"]);
 
 /**
@@ -374,7 +392,7 @@ const UNBINDABLE = new Set(["Tab", "Shift+Tab", "Escape"]);
  * from `data-keys`; {@link resolve} makes the one a field uses, whose
  * {@link Keymap.lookup} says what the field does with a key.
  * {@link Keymap.program} says whether any focused element's keymap gives a
- * key to the program.
+ * key to the program, and {@link Keymap.scroll} what it scrolls with it.
  */
 export class Keymap {
   readonly #bindings = new Map<string, Action>();
@@ -416,7 +434,7 @@ export class Keymap {
     const b = this.#bound(key);
     if (b === undefined || UNBINDABLE.has(b.key)) return undefined;
     const { mods, value, action: a } = b;
-    if (a !== undefined) return a === "program" || (MULTILINE_ACTIONS.has(a) && !this.multiline) ? undefined : a;
+    if (a !== undefined) return a === "program" || isScroll(a) || (MULTILINE_ACTIONS.has(a) && !this.multiline) ? undefined : a;
     if (isChar(value) && !mods.some((m) => m !== "Shift")) return INSERT;
     return undefined;
   }
@@ -426,17 +444,29 @@ export class Keymap {
    * or, for a key with Shift that no binding names, binds it without Shift
    * (SPEC §10.2, keys for the program).
    *
-   * Every focused element has a keymap, and outside a text field `program`
-   * is the only action it gives. A host reads the element's as a field's,
-   * from the `data-keys` values of the elements from the root down to it,
-   * but with no default keymap: `parseKeymap(values.join(" "))`. It gives a
-   * key the keymap binds to `program` to the program before the element
-   * uses it, and before the surface scrolls with it; a nearer binding of the
-   * key to another action takes it back. In a field, {@link lookup} says as
-   * much.
+   * Every focused element has a keymap, and outside a text field it gives
+   * only `program` and the scroll actions. A host reads the element's as a
+   * field's, from the `data-keys` values of the elements from the root down
+   * to it, but with no default keymap and with its scroll actions:
+   * `parseKeymap(values.join(" "))`. It gives a key the keymap binds to
+   * `program` to the program before the element uses it, and before the
+   * surface scrolls with it; a nearer binding of the key to another action
+   * takes it back. In a field, {@link lookup} says as much.
    */
   program(key: string): boolean {
     return this.#bound(key)?.action === "program";
+  }
+
+  /**
+   * The scroll action the keymap binds a key to, with the same fallback
+   * without Shift as {@link program}; undefined for none (SPEC §10.2,
+   * scrolling keys). A host asks it of the keymap it asks program of, for a
+   * key the focused element does not use, along an axis the document
+   * scrolls.
+   */
+  scroll(key: string): ScrollAction | undefined {
+    const a = this.#bound(key)?.action;
+    return a !== undefined && isScroll(a) ? a : undefined;
   }
 
   // The action the keymap binds a key to, with the key, canonical, and its
@@ -459,20 +489,28 @@ export class Keymap {
   }
 }
 
-/** A `data-keys` value's bindings, without those a host ignores (SPEC §10.2). */
-export function parseKeymap(value: string): Keymap {
-  const m = new Keymap();
+// A data-keys value's bindings as written, key and action, in order: split
+// at the last "=", none checked yet.
+function* bindingsOf(value: string): Generator<[string, string]> {
   // ASCII white space separates bindings; NBSP and the rest do not.
   for (const b of value.split(/[ \t\n\f\r]+/)) {
     const i = b.lastIndexOf("=");
-    if (i >= 0) m.bind(b.slice(0, i), b.slice(i + 1));
+    if (i >= 0) yield [b.slice(0, i), b.slice(i + 1)];
   }
+}
+
+/** A `data-keys` value's bindings, without those a host ignores (SPEC §10.2). */
+export function parseKeymap(value: string): Keymap {
+  const m = new Keymap();
+  for (const [k, a] of bindingsOf(value)) m.bind(k, a);
   return m;
 }
 
 /**
  * A field's keymap: SPEC §10.2's default for an `input`, or for a
  * multi-line field, then each `data-keys` value in turn, the root's first.
+ * A binding to a scroll action is left out where it stands, in its own
+ * value too: it neither acts nor overrides an earlier binding of its key.
  */
 export function resolve(multiline: boolean, ...values: string[]): Keymap {
   const m = new Keymap(multiline);
@@ -490,6 +528,6 @@ export function resolve(multiline: boolean, ...values: string[]): Keymap {
     ["Enter", multiline ? "newline" : "submit"],
   ];
   for (const [k, a] of base) m.bind(k, a);
-  for (const v of values) for (const [k, a] of parseKeymap(v).bindings()) m.bind(k, a);
+  for (const v of values) for (const [k, a] of bindingsOf(v)) if (!isScroll(a)) m.bind(k, a);
   return m;
 }

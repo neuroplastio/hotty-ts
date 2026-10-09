@@ -47,6 +47,7 @@ export {
   Keymap,
   MODIFIERS,
   MULTILINE_ACTIONS,
+  SCROLL_ACTIONS,
   TERMINAL_KEYS,
   chars,
   decodeKeys,
@@ -55,4 +56,5 @@ export {
   resolve,
   type Action,
   type Modifier,
+  type ScrollAction,
 } from "./keys.ts";

@@ -32,6 +32,55 @@ describe("Terminal", () => {
     t.close();
   });
 
+  test("late: a late answer reaches the input stream as host, and detect answers true from then on (SPEC §4)", async () => {
+    const h = new Host({ text: true });
+    const clock = new FakeClock();
+    const t = new Terminal({ input: h, output: h, name: "tool", size: () => h, clock, late: true });
+    let native: boolean | undefined;
+    void t.detect().then((n) => (native = n));
+    await clock.advance(150);
+    assert.equal(native, false);
+    const q = h.commands()[0]!;
+    assert.deepEqual([q.get("a"), q.get("n"), q.get("late")], ["q", "1", "1"]);
+    const got: Input[] = [];
+    t.listen((i) => got.push(i));
+    h.becomeHost();
+    await settle();
+    assert.deepEqual(
+      got.map((i) => i.kind),
+      ["host"],
+    );
+    assert.equal(got[0]!.kind === "host" && got[0]!.caps?.host, "hotty-ts-test");
+    assert.equal(t.native, true);
+    assert.equal(await t.detect(), true);
+    t.close();
+    assert.equal(h.commands().length, 1, "answered: close withdraws nothing");
+  });
+
+  test("late: close withdraws a query no answer came to, with a=q:q=2 (SPEC §4)", async () => {
+    const h = new Host({ text: true });
+    const clock = new FakeClock();
+    const t = new Terminal({ input: h, output: h, name: "tool", size: () => h, clock, late: true });
+    void t.detect();
+    await clock.advance(150);
+    t.close();
+    const w = h.commands().at(-1)!;
+    assert.deepEqual([w.get("a"), w.get("q"), w.get("n")], ["q", "2", undefined]);
+    h.becomeHost();
+    assert.equal(h.replies().length, 0, "nothing answers a withdrawn query");
+  });
+
+  test("without late, a terminal that becomes a host later answers nothing, and close sends nothing", async () => {
+    const { h, t, clock } = setup({ text: true });
+    void t.detect();
+    await clock.advance(150);
+    assert.equal(h.commands()[0]!.get("late"), undefined);
+    h.becomeHost();
+    assert.equal(h.replies().length, 0);
+    t.close();
+    assert.equal(h.commands().length, 1);
+  });
+
   test("detect: a terminal that is not a host answers DA1 only, and 150 ms later it is decided", async () => {
     const { h, t, clock } = setup({ text: true });
     let native: boolean | undefined;
@@ -171,7 +220,9 @@ describe("Terminal", () => {
     const got: string[] = [];
     const done = (async () => {
       for await (const i of t.events()) {
-        got.push(i.kind === "data" ? "data " + JSON.stringify(text(i.data)) : "event " + i.message.event()?.kind + " " + i.message.event()?.target);
+        if (i.kind === "data") got.push("data " + JSON.stringify(text(i.data)));
+        else if (i.kind === "message") got.push("event " + i.message.event()?.kind + " " + i.message.event()?.target);
+        else got.push(i.kind);
         if (got.length === 4) break;
       }
     })();

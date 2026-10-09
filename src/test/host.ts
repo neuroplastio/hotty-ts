@@ -89,7 +89,10 @@ export function defaultCaps(): CapsJson {
 export interface HostOptions {
   /** Capability fields to report instead of the defaults' ({@link defaultCaps}). */
   caps?: CapsJson;
-  /** A terminal that is not a HOTTY host: it answers DA1 and the cursor's position, and ignores HOTTY. */
+  /**
+   * A terminal that is not a HOTTY host: it answers DA1 and the cursor's
+   * position, and ignores HOTTY, until becomeHost.
+   */
   text?: boolean;
   /**
    * Record protocol errors (errors()) instead of throwing them from write: a
@@ -158,7 +161,8 @@ export class Host implements AsyncIterable<Uint8Array> {
   readonly cols: number;
   readonly rows: number;
   readonly #caps: CapsJson;
-  readonly #text: boolean;
+  #text: boolean;
+  #late: Message | undefined; // a query asking for a late answer, held while not a host
   readonly #lenient: boolean;
   readonly #kitty: boolean;
   readonly #autoRows: (s: Surface, cols: number) => number;
@@ -207,6 +211,25 @@ export class Host implements AsyncIterable<Uint8Array> {
   /** The capabilities the host reports. */
   get caps(): Caps {
     return new Caps(this.#caps);
+  }
+
+  /** Whether the terminal is a HOTTY host: false when made with text, until becomeHost. */
+  get host(): boolean {
+    return !this.#text;
+  }
+
+  /**
+   * Makes a terminal made with text a host from now on, as a terminal
+   * attaching to a multiplexer's pane does (SDK.md §4.4): it answers the
+   * query that asked for a late answer and was not answered, if one was
+   * sent and not withdrawn (SPEC §4), and every command after.
+   */
+  becomeHost(): void {
+    if (!this.#text) return;
+    this.#text = false;
+    const q = this.#late;
+    this.#late = undefined;
+    if (q) this.#command(q);
   }
 
   // --- the terminal's two sides ------------------------------------------------
@@ -377,8 +400,10 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#alt = on;
   }
 
-  // RIS: a full reset deletes every surface (SPEC §5.4).
+  // RIS: a full reset deletes every surface (SPEC §5.4), and forgets a
+  // held late query (§4).
   #reset() {
+    this.#late = undefined;
     this.#surfaces.clear();
     this.#keyboard = undefined;
     this.#scr = new Screen(this.cols, this.rows);
@@ -429,6 +454,8 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#commands.push(m);
     if (this.#text) {
       if (m.get("a") !== "q") this.#protocol(`a HOTTY command to a terminal that is not a host (SPEC §14): ${ctlString(m)}`);
+      // One query held at a time: any other takes its place (SPEC §4).
+      else this.#late = m.get("late") === "1" && m.get("q") !== "2" ? m : undefined;
       return;
     }
     this.#command(m);
@@ -942,7 +969,9 @@ export class Host implements AsyncIterable<Uint8Array> {
    * terminal encoding here: characters, Enter, Tab, Escape, Backspace, the
    * arrows and the editing keys, and Control or Alt with a character. So
    * does every key while no surface has the keyboard. The host lays nothing
-   * out, so no key scrolls.
+   * out and does not report scroll, so no key scrolls: a key bound to a
+   * scroll action goes on as if its keymap did not bind it (SPEC §10.2), and
+   * a field's keymap leaves those bindings out.
    */
   key(key: string): boolean {
     const s = this.#keyboard;
@@ -962,8 +991,9 @@ export class Host implements AsyncIterable<Uint8Array> {
     const el = s.focusedNode;
     if (!el) return false; // no element focused, no keymap (SPEC §10.2)
     if (textField(el)) return this.#fieldKey(s, el, key);
-    // Any other element's keymap gives keys to the program, and does
-    // nothing else.
+    // Any other element's keymap gives keys to the program; its scroll
+    // actions do nothing here, where nothing scrolls, and a nearer one takes
+    // a key back from a farther program.
     if (parseKeymap(keymaps(el).join(" ")).program(key)) return false;
     if (!shiftOnly) return false;
     if (textInput(el)) {

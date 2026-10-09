@@ -100,7 +100,7 @@ export interface Want {
 
 /** What the Session tells the program. */
 export type SessionMessage =
-  /** Detection decided, once. */
+  /** Detection decided, once; again, native, when a late answer comes (SessionOptions.late). */
   | { kind: "ready"; mode: "native" | "text"; caps?: Caps }
   /** Something the user did in a surface (SPEC §9). */
   | { kind: "event"; event: Event }
@@ -151,6 +151,13 @@ export interface SessionOptions {
    * and those are hard: a surface beyond them waits for room.
    */
   limit?: number;
+  /**
+   * Ask for a late answer (SPEC §4): if one comes while the mode is text,
+   * the mode becomes native, ready comes again, and then relayout. A
+   * program that asks for it draws either rendition whenever the mode
+   * says. Until it comes, close withdraws the query.
+   */
+  late?: boolean;
 }
 
 // What the Session last sent for a surface on screen.
@@ -197,6 +204,7 @@ export class Session {
   readonly counts: Counts = { docs: 0, places: 0, hides: 0, deletes: 0, relayouts: 0 };
 
   readonly #onMessage: (m: SessionMessage) => void;
+  readonly #late: boolean;
   #placed = new Map<string, Placed>(); // on screen
   #hasDoc = new Set<string>(); // sent: on screen or hidden
   #scroll = new Map<string, number>(); // the axes each document went out with
@@ -217,9 +225,14 @@ export class Session {
     this.link = options.link;
     this.#onMessage = options.onMessage;
     this.limit = options.limit ?? 0;
+    this.#late = options.late ?? false;
     this.link.listen((i) => {
       if (i.kind === "data") {
         this.#onMessage({ kind: "input", data: i.data });
+        return;
+      }
+      if (i.kind === "host") {
+        this.#lateAnswer(i.caps);
         return;
       }
       const r = i.message.reply();
@@ -239,12 +252,22 @@ export class Session {
    * after 1.5 s of silence.
    */
   detect(): void {
-    void this.link.detect({ decided: true }).then((native) => {
+    void this.link.detect({ decided: true, late: this.#late }).then((native) => {
       if (this.mode !== "detecting") return;
       this.mode = native ? "native" : "text";
       this.caps = native ? this.link.caps : undefined;
       this.#onMessage(native ? { kind: "ready", mode: "native", caps: this.caps } : { kind: "ready", mode: "text" });
     });
+  }
+
+  // A late answer (SPEC §4): a host attached after the Session fell back to
+  // text. ready again, and a layout.
+  #lateAnswer(caps: Caps | undefined) {
+    if (this.mode !== "text" || this.#closed) return;
+    this.mode = "native";
+    this.caps = caps;
+    this.#onMessage({ kind: "ready", mode: "native", caps });
+    this.#onMessage({ kind: "relayout" });
   }
 
   #reply(r: Reply) {
@@ -506,13 +529,14 @@ export class Session {
 
   /**
    * Ends the Session on the program's way out: it deletes every surface it
-   * sent, and none of anyone else's, and returns what writes the deletes.
+   * sent, and none of anyone else's, and returns what writes the deletes,
+   * and the withdrawal of a late query no answer came to (SPEC §4).
    * After it, layout and send do nothing, so that a frame drawn before the
    * program quits does not send a document again.
    */
   close(): string {
     for (const name of this.#names()) this.delete(name);
-    const out = this.flush();
+    const out = this.flush() + this.link.withdrawLate();
     this.#closed = true;
     return out;
   }

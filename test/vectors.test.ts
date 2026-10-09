@@ -116,7 +116,9 @@ function build(b: Any): string {
   const ro: hotty.ReplyOptions = { n: o.n, q: o.q };
   switch (b.build) {
     case "query":
-      return hotty.query(a.n);
+      return hotty.query(a.n, { late: o.late });
+    case "withdraw_late":
+      return hotty.withdrawLate();
     case "doc":
       return hotty.doc(a.surface, a.html, { ...ro, detached: o.detached, scroll: o.scroll });
     case "place":
@@ -357,7 +359,7 @@ sections("scan", (v) => {
 // --- detect ------------------------------------------------------------------
 
 sections("detect", (v) => {
-  const det = new hotty.Detector({ n: v.n ?? 1 });
+  const det = new hotty.Detector({ n: v.n ?? 1, late: v.late ?? false });
   const dec = new hotty.Decoder();
   v.steps.forEach((st: Any, i: number) => {
     const at: number = st.at;
@@ -389,10 +391,11 @@ sections("keys", (v) => {
 });
 
 sections("keymap", (v) => {
-  if ("program" in v) {
+  if ("program" in v || "scroll" in v) {
     // An element's keymap outside a text field: no default keymap.
     const m = hotty.parseKeymap(v.keys.join(" "));
-    for (const [key, want] of Object.entries(v.program)) assert.equal(m.program(key), want, key);
+    for (const [key, want] of Object.entries(v.program ?? {})) assert.equal(m.program(key), want, key);
+    for (const [key, want] of Object.entries(v.scroll ?? {})) assert.equal(nul(m.scroll(key)), want, key);
     return;
   }
   if (!("lookup" in v)) {

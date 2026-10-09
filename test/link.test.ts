@@ -118,6 +118,7 @@ describe("Link on a byte stream", () => {
       const got: string[] = []; // adjacent data merged
       link.listen((i) => {
         if (i.kind === "message") got.push("ev:" + i.message.event()?.target);
+        else if (i.kind !== "data") got.push(i.kind);
         else if (got.length > 0 && !got.at(-1)!.startsWith("ev:")) got[got.length - 1] += bin(i.data);
         else got.push(bin(i.data));
       });

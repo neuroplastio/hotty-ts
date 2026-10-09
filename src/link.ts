@@ -21,7 +21,7 @@
  */
 
 import type { ReplyOptions } from "./commands.ts";
-import { detach } from "./commands.ts";
+import { detach, withdrawLate } from "./commands.ts";
 import { Decoder } from "./decoder.ts";
 import { Detector } from "./detector.ts";
 import type { Caps, Message, Reply } from "./messages.ts";
@@ -64,10 +64,14 @@ export interface Known {
 
 /**
  * What arrives that no call waits for, in the order it arrived: a HOTTY
- * message (a reply or an event), or other bytes of a byte stream (keys, the
- * mouse, pastes, other answers), unchanged.
+ * message (a reply or an event), other bytes of a byte stream (keys, the
+ * mouse, pastes, other answers), unchanged, or a late answer to the query
+ * (SPEC §4): the terminal is a host from now on, with these capabilities.
  */
-export type Input = { kind: "message"; message: Message } | { kind: "data"; data: Uint8Array };
+export type Input =
+  | { kind: "message"; message: Message }
+  | { kind: "data"; data: Uint8Array }
+  | { kind: "host"; caps: Caps | undefined };
 
 /** A call waited for the terminal in vain: it did not answer in time, or its input ended. */
 export class NoAnswerError extends Error {
@@ -92,6 +96,15 @@ export interface LinkOptions {
   name?: string;
   /** What detect answers without asking. */
   known?: Known;
+  /**
+   * Ask for a late answer (SPEC §4), for a program that can start using
+   * HOTTY after it fell back: what passes HOTTY through with no host yet,
+   * such as a multiplexer's pane with no terminal attached, may answer once
+   * a terminal that is a host attaches. The answer comes to the input
+   * stream as `host`, and detect answers true from then on. Until it comes,
+   * close withdraws the query.
+   */
+  late?: boolean;
   /** The time and timers; the runtime's by default. */
   clock?: Clock;
   /** How long a lone ESC at the end of a read waits before it is the Escape key; ESCAPE_DELAY by default, 0 for at once. */
@@ -106,6 +119,8 @@ export interface DetectOptions {
    * reply arrives, and done when the DA1 behind it does, or 300 ms later.
    */
   decided?: boolean;
+  /** Ask for a late answer, as LinkOptions.late; the first call's counts. */
+  late?: boolean;
 }
 
 // What takes the inputs a call waits for. Each returns whether it took it;
@@ -131,6 +146,7 @@ export class Link {
   /** The time and timers the link waits with. */
   readonly clock: Clock;
   readonly #known: Known | undefined;
+  readonly #late: boolean;
   readonly #dec = new Decoder();
   readonly #scanner = new Scanner({ da1: true });
   readonly #escapeDelay: number;
@@ -154,12 +170,14 @@ export class Link {
   #resolveDone: ((native: boolean) => void) | undefined;
   #native = false;
   #caps: Caps | undefined;
+  #withdrawn = false; // a late query withdrawn
 
   constructor(options: LinkOptions) {
     this.#write = options.write;
     this.name = surfaceName(options.name ?? "hotty");
     this.clock = options.clock ?? systemClock;
     this.#known = options.known;
+    this.#late = options.late ?? false;
     this.#escapeDelay = options.escapeDelay ?? ESCAPE_DELAY;
   }
 
@@ -266,9 +284,15 @@ export class Link {
   #message(m: Message) {
     const r = m.reply();
     const d = this.#detector;
-    if (r && d && d.reply(r, this.clock.now())) {
-      this.#detected();
-      return;
+    if (r && d) {
+      const fellBack = d.done && d.state === "text";
+      // A withdrawn query's late answer reaches nothing.
+      if (fellBack && this.#withdrawn && r.ok && r.re === "q" && r.n === d.n) return;
+      if (d.reply(r, this.clock.now())) {
+        if (fellBack && d.state === "native") this.#lateAnswer(d.caps);
+        else this.#detected();
+        return;
+      }
     }
     for (const t of [...this.#taps]) if (t.message?.(m)) return;
     this.#push({ kind: "message", message: m });
@@ -383,18 +407,39 @@ export class Link {
 
   /**
    * Asks the terminal whether it is a HOTTY host (SPEC §4), once: later
-   * calls answer what the first found. It resolves when the detection is
-   * done, so that nothing of it is left for whatever reads the terminal
-   * next, or with `decided`, as soon as it is known. A terminal that
-   * answers neither the query nor DA1 within 1.5 s is not a host; a link
-   * made with `known` answers at once.
+   * calls answer what the first found, or true once a late answer came. It
+   * resolves when the detection is done, so that nothing of it is left for
+   * whatever reads the terminal next, or with `decided`, as soon as it is
+   * known. A terminal that answers neither the query nor DA1 within 1.5 s
+   * is not a host; a link made with `known` answers at once.
    */
   detect(options: DetectOptions = {}): Promise<boolean> {
-    if (!this.#done) this.#startDetection();
+    if (!this.#done) this.#startDetection(options.late ?? false);
     return options.decided ? this.#decided! : this.#done!;
   }
 
-  #startDetection() {
+  // A late answer (SPEC §4): the terminal is a host from now on.
+  #lateAnswer(caps: Caps | undefined) {
+    this.#native = true;
+    this.#caps = caps;
+    this.#decided = this.#done = Promise.resolve(true);
+    this.#push({ kind: "host", caps });
+  }
+
+  /**
+   * Withdraws the query, when it asked for a late answer and none has come
+   * (SPEC §4): returns the command to write, or "" when there is nothing to
+   * withdraw. close writes it itself; an adapter that writes with its
+   * frames, as a Session does, writes what this returns.
+   */
+  withdrawLate(): string {
+    const d = this.#detector;
+    if (!d?.late || d.state === "native" || this.#withdrawn) return "";
+    this.#withdrawn = true;
+    return withdrawLate();
+  }
+
+  #startDetection(late: boolean) {
     this.#decided = new Promise((r) => (this.#resolveDecided = r));
     this.#done = new Promise((r) => (this.#resolveDone = r));
     if (this.#known) {
@@ -404,7 +449,7 @@ export class Link {
       this.#resolveDone!(this.#native);
       return;
     }
-    const d = new Detector({ n: QUERY_N });
+    const d = new Detector({ n: QUERY_N, late: this.#late || late });
     this.#detector = d;
     const release = this.hold();
     void this.#done.then(release);
@@ -646,11 +691,13 @@ export class Link {
 
   /**
    * Closes the link: calls that wait give up, and the input stream ends.
-   * It sends nothing: what is left on the screen, and the replies not
+   * It sends nothing but the withdrawal of a late query no answer came to
+   * ({@link withdrawLate}): what is left on the screen, and the replies not
    * read, are the program's to settle first (SDK.md §2.6).
    */
   close(): void {
     if (this.#closed) return;
+    this.send(this.withdrawLate());
     this.#closed = true;
     this.clock.clearTimeout(this.#timer);
     this.clock.clearTimeout(this.#escTimer);

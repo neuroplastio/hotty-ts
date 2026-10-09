@@ -62,7 +62,7 @@ export class Field {
   /**
    * Does an action, and returns whether the value changed. `submit` and
    * `program` are the program's, and an action the field does not have (a
-   * multi-line one in an input) does nothing.
+   * multi-line one in an input, a scroll action) does nothing.
    */
   do(action: Action | string): boolean {
     const c = chars(this.value);

@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 
-import { Decoder, doc, focus, morphTo, place, placeAt, SCROLL_HORIZONTAL, SCROLL_VERTICAL } from "../src/index.ts";
+import { Decoder, doc, focus, morphTo, place, placeAt, query, SCROLL_HORIZONTAL, SCROLL_VERTICAL, withdrawLate } from "../src/index.ts";
 import { Host } from "../src/test/index.ts";
 import { describe, test } from "./harness.ts";
 
@@ -224,6 +224,60 @@ describe("Host keys", () => {
     // Escape is never the surface's.
     assert.equal(h.key("Escape"), false);
     assert.deepEqual(sent(h), ["\x1b"]);
+  });
+
+  test("this host does not scroll: a key bound to a scroll action goes on as if its keymap did not bind it, so the element uses it or the program hears it, and a field leaves the binding out (SPEC §10.2)", () => {
+    const { h, s } = surface(
+      '<div data-keys="ArrowDown=program k=program">' +
+        '<div tabindex=0 id=v data-keys="j=scroll-down G=scroll-end Space=scroll-page-down">' +
+        '<select id=s data-keys="ArrowDown=scroll-down"><option>a<option>b</select>' +
+        "<button id=b>B</button>" +
+        '<input id=f data-on=input data-keys="k=scroll-up">' +
+        "</div></div>",
+    );
+    const at = (id: string) => {
+      h.write(focus("s", id));
+      h.take();
+    };
+    // The box uses none of them: they reach the program.
+    at("v");
+    for (const k of ["j", "G", "Space"]) assert.equal(h.key(k), false, k);
+    assert.deepEqual(sent(h), ["jG "]);
+    // A select's nearer scroll binding takes ArrowDown back from the
+    // program, and the select picks with it.
+    at("s");
+    h.key("ArrowDown");
+    assert.deepEqual(sent(h), ['ev change t=s {"value":"b"}']);
+    // A button uses Space.
+    at("b");
+    h.key("Space");
+    assert.deepEqual(sent(h), ["ev click t=b"]);
+    // A field leaves j=scroll-down out and types j; k=scroll-up too, which
+    // leaves k to the farther program.
+    at("f");
+    for (const k of ["j", "k"]) h.key(k);
+    assert.deepEqual(sent(h), ['ev input t=f {"value":"j"}', "k"]);
+    assert.equal(s.focused(), "f");
+  });
+
+  test("becomeHost: a terminal that was not a host answers the query held for a late answer, unless another took its place or a reset came (SPEC §4)", () => {
+    const answered = (...writes: string[]) => {
+      const h = new Host({ text: true });
+      for (const w of writes) h.write(w);
+      h.becomeHost();
+      return h.replies().map((r) => [r.get("n"), r.get("re")]);
+    };
+    assert.deepEqual(answered(query(7, { late: true })), [["7", "q"]]);
+    assert.deepEqual(answered(query(7, { late: true }), query(8)), [], "a query without late takes its place");
+    assert.deepEqual(answered(query(7, { late: true }), withdrawLate()), [], "withdrawn");
+    assert.deepEqual(answered(query(7, { late: true }), "\x1bc"), [], "a full reset forgets it");
+    assert.deepEqual(answered(query(7)), [], "no late answer asked for");
+    const h = new Host({ text: true });
+    assert.equal(h.host, false);
+    h.becomeHost();
+    assert.equal(h.host, true);
+    h.write(doc("x", "<p>x</p>"));
+    assert.ok(h.surface("x"), "a host from then on");
   });
 
   test("a key the focused element's keymap binds to program reaches the program, whatever the element; outside a text field other bindings do nothing but take a key back (SPEC §10.2)", () => {
