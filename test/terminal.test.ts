@@ -231,7 +231,7 @@ describe("Terminal", () => {
     h.type("\x1b");
     await clock.advance(25); // the Escape key, once nothing follows it
     await done;
-    assert.deepEqual(got, ['data "a"', "event focus ", "event click go", 'data "\\u001b"']);
+    assert.deepEqual(got, ['data "a"', "event focus go", "event click go", 'data "\\u001b"']);
     t.close();
   });
 

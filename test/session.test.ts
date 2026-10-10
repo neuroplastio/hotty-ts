@@ -331,7 +331,7 @@ describe("Session", () => {
       if (m.kind === "input") return `input ${bin(m.data)}`;
       return m.kind;
     });
-    assert.deepEqual(got, ["event focus ", "event click go", "ack delta 7", "error ENOTARGET", "input k"]);
+    assert.deepEqual(got, ["event focus go", "event click go", "ack delta 7", "error ENOTARGET", "input k"]);
     assert.equal(h.surface("f")!.textOf("t"), "z");
   });
 

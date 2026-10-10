@@ -185,13 +185,13 @@ describe("Host keys", () => {
       order.push(s.focused());
     }
     assert.deepEqual(order, ["notes", "ok", "size", "go"]);
-    assert.deepEqual(sent(h), ['ev change t=name {"value":"Ad A"}']);
+    assert.deepEqual(sent(h), ['ev change t=name {"value":"Ad A"}', "ev focus t=notes", "ev focus t=ok", "ev focus t=size", "ev focus t=go"]);
 
     // Shift+Tab goes back; a key with Control is the program's.
     h.key("Shift+Tab");
     assert.equal(s.focused(), "size");
     assert.equal(h.key("Control+s"), false);
-    assert.deepEqual(sent(h), ["\x13"]);
+    assert.deepEqual(sent(h), ["ev focus t=size", "\x13"]);
 
     // A select picks by the arrows and by the first letter.
     for (const k of ["ArrowDown", "l", "Home", "ArrowUp"]) h.key(k);
@@ -203,7 +203,13 @@ describe("Host keys", () => {
 
     // Space checks a checkbox; Enter on a button clicks it.
     for (const k of ["Shift+Tab", " ", "Tab", "Tab", "Enter"]) h.key(k);
-    assert.deepEqual(sent(h), ['ev change t=ok {"checked":true,"value":"yes"}', "ev click t=go"]);
+    assert.deepEqual(sent(h), [
+      "ev focus t=ok",
+      'ev change t=ok {"checked":true,"value":"yes"}',
+      "ev focus t=size",
+      "ev focus t=go",
+      "ev click t=go",
+    ]);
 
     // Past the last element the surface loses the keyboard.
     h.key("Tab");
@@ -312,7 +318,7 @@ describe("Host keys", () => {
     h.key("Tab");
     assert.equal(s.focused(), "own");
     for (const k of ["End", "ArrowUp", "ArrowDown"]) h.key(k);
-    assert.deepEqual(sent(h), ['ev change t=own {"value":"c"}', "\x1b[A\x1b[B"]);
+    assert.deepEqual(sent(h), ["ev focus t=own", 'ev change t=own {"value":"c"}', "\x1b[A\x1b[B"]);
 
     // A button clicks with Enter, which it binds to an action of its own,
     // and gives Space to the program.

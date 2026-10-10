@@ -699,15 +699,21 @@ export class Host implements AsyncIterable<Uint8Array> {
   }
 
   // Gives a surface the keyboard at el, taking it from another (which sends
-  // blur), and committing the control that loses focus.
+  // blur), and committing the control that loses focus. Focus the user
+  // moves (report) is reported each time it lands on another element, named
+  // by the nearest id from el outward (SPEC §10.1); the program's is not.
   #takeKeyboard(s: Surface, el: El | undefined, report: boolean) {
     if (this.#keyboard && this.#keyboard !== s) this.#blur(this.#keyboard);
     if (s.keyb && s.focusedNode !== el) this.#commit(s);
     const had = s.keyb;
+    const was = s.focusedNode;
     s.focusedNode = el;
     s.keyb = true;
     this.#keyboard = s;
-    if (report && !had) this.#event(s, "focus", "");
+    if (report && (!had || was !== el)) {
+      const n = closest(el, (n) => (attr(n, "id") ?? "") !== "");
+      this.#event(s, "focus", n ? attr(n, "id")! : "");
+    }
   }
 
   // Sends change for the focused text control, if the user edited it since
