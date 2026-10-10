@@ -406,15 +406,22 @@ sections("keymap", (v) => {
   }
   const m = hotty.resolve(v.multiline, ...(v.terminal_keys ? [hotty.TERMINAL_KEYS] : []), ...v.keys);
   for (const [key, want] of Object.entries(v.lookup)) assert.equal(nul(m.lookup(key)), want, key);
+  for (const [key, want] of Object.entries(v.selects ?? {})) assert.equal(m.selects(key), want, `selects ${key}`);
 });
 
 sections("edit", (v) => {
   const f = new Field(v.field);
   v.steps.forEach((st: Any, i: number) => {
-    const changed = "do" in st ? f.do(st.do) : f.type(st.type);
-    const got: Record<string, unknown> = { value: f.value, caret: f.caret, changed };
-    for (const k of ["value", "caret", "changed"]) {
-      if (k in st) assert.deepEqual(got[k], st[k], `step ${i} (${st.do ?? JSON.stringify(st.type)}): ${k}`);
+    let changed = false;
+    if ("do" in st) changed = f.do(st.do);
+    else if ("extend" in st) changed = f.extend(st.extend);
+    else if ("select" in st) f.select(st.select[0], st.select[1]);
+    else changed = f.type(st.type);
+    // Nothing selected is an anchor at the caret (conformance/README.md).
+    const got: Record<string, unknown> = { value: f.value, caret: f.caret, anchor: f.anchor ?? f.caret, changed };
+    const what = st.do ?? st.extend ?? JSON.stringify(st.select ?? st.type);
+    for (const k of ["value", "caret", "anchor", "changed"]) {
+      if (k in st) assert.deepEqual(got[k], st[k], `step ${i} (${what}): ${k}`);
     }
   });
 });

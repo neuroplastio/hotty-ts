@@ -42,6 +42,7 @@ export const ACTIONS = [
   "page-down",
   "input-start",
   "input-end",
+  "select-all",
   "newline",
   "submit",
   "program",
@@ -56,9 +57,23 @@ export const MULTILINE_ACTIONS: ReadonlySet<Action> = new Set<Action>([
   "line-next",
   "page-up",
   "page-down",
+  "newline",
+]);
+
+/** The moves, which select with Shift (SPEC §10.2). */
+export const MOVES: ReadonlySet<Action> = new Set<Action>([
+  "char-backward",
+  "char-forward",
+  "word-backward",
+  "word-forward",
+  "line-start",
+  "line-end",
+  "line-previous",
+  "line-next",
+  "page-up",
+  "page-down",
   "input-start",
   "input-end",
-  "newline",
 ]);
 
 /** What {@link Keymap.lookup} returns for a character the field types. */
@@ -66,15 +81,16 @@ export const INSERT = "insert";
 
 /**
  * The SDK's keymap (SDK.md §3.10), as a `data-keys` value: the keys of
- * Bubble Tea's text input and text area. A program puts it on an element
- * that holds its fields, and edits its fields in cells with
+ * Bubble Tea's text input and text area, but Control+a selects all, as in a
+ * GUI field (Home still goes to the line's start). A program puts it on an
+ * element that holds its fields, and edits its fields in cells with
  * `resolve(multiline, TERMINAL_KEYS)`.
  */
 export const TERMINAL_KEYS = [
   "ArrowLeft=char-backward Control+b=char-backward ArrowRight=char-forward Control+f=char-forward",
   "Alt+ArrowLeft=word-backward Control+ArrowLeft=word-backward Alt+b=word-backward",
   "Alt+ArrowRight=word-forward Control+ArrowRight=word-forward Alt+f=word-forward",
-  "Home=line-start Control+a=line-start End=line-end Control+e=line-end",
+  "Home=line-start End=line-end Control+e=line-end",
   "Backspace=delete-char-backward Control+h=delete-char-backward",
   "Delete=delete-char-forward Control+d=delete-char-forward",
   "Alt+Backspace=delete-word-backward Control+w=delete-word-backward Control+Backspace=delete-word-backward",
@@ -83,6 +99,7 @@ export const TERMINAL_KEYS = [
   "ArrowUp=line-previous Control+p=line-previous ArrowDown=line-next Control+n=line-next",
   "PageUp=page-up PageDown=page-down",
   "Alt+<=input-start Control+Home=input-start Alt+>=input-end Control+End=input-end",
+  "Control+a=select-all",
   "Control+m=newline",
 ].join(" ");
 
@@ -390,7 +407,8 @@ const UNBINDABLE = new Set(["Tab", "Shift+Tab", "Escape"]);
 /**
  * Bindings of keys to actions (SPEC §10.2). {@link parseKeymap} reads one
  * from `data-keys`; {@link resolve} makes the one a field uses, whose
- * {@link Keymap.lookup} says what the field does with a key.
+ * {@link Keymap.lookup} says what the field does with a key, and
+ * {@link Keymap.selects} whether it selects as it moves.
  * {@link Keymap.program} says whether any focused element's keymap gives a
  * key to the program, and {@link Keymap.scroll} what it scrolls with it.
  */
@@ -437,6 +455,19 @@ export class Keymap {
     if (a !== undefined) return a === "program" || isScroll(a) || (MULTILINE_ACTIONS.has(a) && !this.multiline) ? undefined : a;
     if (isChar(value) && !mods.some((m) => m !== "Shift")) return INSERT;
     return undefined;
+  }
+
+  /**
+   * Whether the field selects with a key (SPEC §10.2, Shift selects):
+   * {@link lookup} returns a move for it ({@link MOVES}), and its canonical
+   * name has Shift (`Shift+ArrowLeft`, `Control+Shift+End`, not `Alt+<`).
+   * The field then does the move with `Field.extend`.
+   */
+  selects(key: string): boolean {
+    const k = parseKey(key);
+    if (k === undefined) return false;
+    const a = this.lookup(k);
+    return a !== undefined && a !== INSERT && MOVES.has(a) && splitKey(k)![0].includes("Shift");
   }
 
   /**
@@ -517,14 +548,25 @@ export function resolve(multiline: boolean, ...values: string[]): Keymap {
   const base: [string, Action][] = [
     ["ArrowLeft", "char-backward"],
     ["ArrowRight", "char-forward"],
+    ["Control+ArrowLeft", "word-backward"],
+    ["Control+ArrowRight", "word-forward"],
+    ["Alt+ArrowLeft", "word-backward"],
+    ["Alt+ArrowRight", "word-forward"],
     ["Home", "line-start"],
     ["End", "line-end"],
+    ["Control+Home", "input-start"],
+    ["Control+End", "input-end"],
     ["Backspace", "delete-char-backward"],
     ["Delete", "delete-char-forward"],
+    ["Control+Backspace", "delete-word-backward"],
+    ["Control+Delete", "delete-word-forward"],
+    ["Alt+Backspace", "delete-word-backward"],
+    ["Alt+Delete", "delete-word-forward"],
     ["ArrowUp", "line-previous"],
     ["ArrowDown", "line-next"],
     ["PageUp", "page-up"],
     ["PageDown", "page-down"],
+    ["Control+a", "select-all"],
     ["Enter", multiline ? "newline" : "submit"],
   ];
   for (const [k, a] of base) m.bind(k, a);

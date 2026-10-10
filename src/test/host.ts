@@ -847,8 +847,9 @@ export class Host implements AsyncIterable<Uint8Array> {
   /**
    * Types text into a text control, as the user does: the surface takes the
    * keyboard there (focus, if it did not have it), the control's value
-   * becomes text (input, with data-on~=input), and the change is committed
-   * when focus leaves it (blur, another control, submit).
+   * becomes text (input, with data-on~=input), with the caret at its end and
+   * nothing selected, and the change is committed when focus leaves it
+   * (blur, another control, submit).
    */
   fill(surface: string, id: string, text: string): void {
     const s = this.#target(surface);
@@ -856,6 +857,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (s.detached) throw this.#detachedError(s);
     if (!control(el) || box(el) || !focusable(el)) throw new HostError("not-control", `#${id} is not a text control`);
     this.#takeKeyboard(s, el, true);
+    s.fields.delete(el); // the caret starts at the end of the text again
     s.values.set(el, text);
     s.edited.add(el);
     if (listens("input")(el)) this.#event(s, "input", id, { value: text });
@@ -955,9 +957,11 @@ export class Host implements AsyncIterable<Uint8Array> {
    * left out; past the last, or before the first, the surface loses the
    * keyboard (blur). A text field (a text-like input, a textarea, an editing
    * host) does what its keymap says (resolve, with the `data-keys` of the
-   * elements from the root to it): it edits its value at a caret this host
-   * keeps, as a Field does, with input for each edit (data-on~=input);
-   * submit commits it and submits its form; characters type.
+   * elements from the root to it): it edits its value at a caret and a
+   * selection this host keeps, as a Field does, with input for each edit
+   * (data-on~=input); Shift with a move selects (Keymap.selects), and
+   * select-all selects the value; submit commits it and submits its form;
+   * characters type, in place of the selection.
    *
    * Any other element has a keymap too, read the same way but with no
    * default keymap (Keymap.program): a key it binds to `program` reaches the
@@ -1044,7 +1048,8 @@ export class Host implements AsyncIterable<Uint8Array> {
       s.fields.set(el, f);
     }
     f.value = s.valueOf(el);
-    const a = resolveKeymap(multi, ...(textField(el) ? keymaps(el) : [])).lookup(key);
+    const keys = resolveKeymap(multi, ...(textField(el) ? keymaps(el) : []));
+    const a = keys.lookup(key);
     if (a === undefined) return false;
     if (a === "submit") {
       const form = closest(el, (n) => n.tagName === "form");
@@ -1054,7 +1059,8 @@ export class Host implements AsyncIterable<Uint8Array> {
       }
       return true;
     }
-    if (a === INSERT ? f.type(keyText(parseKey(key)!)) : f.do(a)) this.#typeInto(s, el, f.value);
+    const changed = a === INSERT ? f.type(keyText(parseKey(key)!)) : keys.selects(key) ? f.extend(a) : f.do(a);
+    if (changed) this.#typeInto(s, el, f.value);
     return true;
   }
 

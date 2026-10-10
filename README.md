@@ -49,7 +49,7 @@ h.surface("hello-hello")?.text(); // "Hello, HTML in the terminal."
 | import | what it is | SDK.md |
 | --- | --- | --- |
 | `@neuroplastio/hotty` | the wire layer: builders, `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
-| `@neuroplastio/hotty/field` | `Field`, a text field's value and caret edited by SPEC §10.2's actions, for a program that draws its fields in cells | §4.6 |
+| `@neuroplastio/hotty/field` | `Field`, a text field's value, caret and selection edited by SPEC §10.2's actions, for a program that draws its fields in cells | §4.6 |
 | `@neuroplastio/hotty/terminal` | `Terminal`, for a program with a terminal: one that prints documents and exits, asks a question, or streams a chart | §4.1 |
 | `@neuroplastio/hotty/session` | `Session`, for a UI framework's adapter: modes, layout, relayout, limits, messages | §4.3 |
 | `@neuroplastio/hotty/link` | `Link`, what `Terminal` and `Session` stand on: for an environment that reads the terminal itself and hands over what it reads | §4.2 |
@@ -90,7 +90,9 @@ does not keep. Detection then decides on the host's reply alone, and is done
 A program that draws its fields in cells edits them with the keymap it gives
 its surfaces' fields, so a field edits the same on a host and off one. It
 puts `TERMINAL_KEYS` in the `data-keys` of an element that holds its fields,
-and in cells looks each key up in the same keymap:
+and in cells looks each key up in the same keymap. Shift with a move
+selects, as on a host, and the field's `selection()` is what to draw as
+selected:
 
 ```ts
 import { INSERT, TERMINAL_KEYS, decodeKeys, resolve } from "@neuroplastio/hotty";
@@ -103,6 +105,7 @@ for (const key of decodeKeys(read)) {
   const a = key === undefined ? undefined : keys.lookup(key);
   if (a === INSERT) f.type(key === "Space" ? " " : key!);
   else if (a === "submit") submit(f.value);
+  else if (a && keys.selects(key!)) f.extend(a); // Shift+ArrowLeft, Control+Shift+End
   else if (a) f.do(a); // true when the value changed: an input event's worth
   else onKey(key); // not the field's: the program's own keymap has it
 }

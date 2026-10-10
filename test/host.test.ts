@@ -394,6 +394,16 @@ describe("Host keys in a field", () => {
     for (const k of ["x", "ArrowLeft", "ArrowLeft", "y"]) h.key(k);
     assert.deepEqual(sent(h), ['ev input t=f {"value":"abcx"}', 'ev input t=f {"value":"abycx"}']);
   });
+
+  test("fill leaves the caret at the end of its text, with nothing selected", () => {
+    const { h } = surface("<input id=f value=abc data-on=input>");
+    h.write(focus("s", "f"));
+    h.take();
+    for (const k of ["Shift+ArrowLeft", "Shift+ArrowLeft"]) assert.ok(h.key(k), k);
+    h.fill("s", "f", "xyz");
+    h.key("q");
+    assert.deepEqual(sent(h), ['ev input t=f {"value":"xyz"}', 'ev input t=f {"value":"xyzq"}']);
+  });
 });
 
 describe("Host drags with steps", () => {

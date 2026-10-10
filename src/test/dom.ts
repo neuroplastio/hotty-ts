@@ -241,7 +241,7 @@ export class Surface {
   values: Map<Node, string> = new Map();
   checked: Map<Node, boolean> = new Map();
   edited: Set<Node> = new Set(); // text controls edited since their last commit
-  fields: Map<Node, Field> = new Map(); // text fields' carets, once keys edit them
+  fields: Map<Node, Field> = new Map(); // text fields' carets and selections, once keys edit them
   focusedNode: Element | undefined;
   keyb = false; // the surface has the keyboard
 
