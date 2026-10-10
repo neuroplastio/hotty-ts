@@ -2,13 +2,14 @@
 // time passed in, in milliseconds.
 
 import { query } from "./commands.ts";
+import { VERSION } from "./constants.ts";
 import type { Caps, Reply } from "./messages.ts";
 
 /** How long to wait for any answer at all. */
 export const DETECT_TIMEOUT = 1500;
 /** After a DA1 that arrives before any reply: it may answer an earlier question. */
 export const DETECT_AFTER_DA1 = 150;
-/** After the host's reply, for the DA1 behind it. */
+/** After the reply to the query, for the DA1 behind it. */
 export const DETECT_AFTER_REPLY = 300;
 
 /** What detection has found: not yet, a host, or a terminal that is not one. */
@@ -20,14 +21,18 @@ export interface DetectorOptions {
   n?: number;
   /**
    * Ask for a late answer (SPEC §4): the first reply that answers the query
-   * once the state is text makes the terminal a host, with its
+   * once the state is text, and makes the terminal a host, does, with its
    * capabilities. Still decided and done.
    */
   late?: boolean;
 }
 
 /**
- * Decides whether the terminal is a HOTTY host (SPEC §4). Every input first
+ * Decides whether the terminal is a HOTTY host this SDK can use (SPEC §4).
+ * A reply to the query makes it one when it is `a=ok` and its capabilities
+ * decode and name {@link VERSION}; any other reply to the query, an error
+ * (EVERSION or another) or capabilities that do not decode (a 0.1 host's
+ * JSON) or name another version, makes it text at once. Every input first
  * lets the time pass: whatever was due at or before `now` happens before
  * the input is taken.
  */
@@ -37,16 +42,15 @@ export class Detector {
   /** Whether the query asks for a late answer. */
   readonly late: boolean;
   state: DetectState = "detecting";
-  /** The host's capabilities, when native. */
+  /** The host's capabilities, when native; undefined otherwise. */
   caps: Caps | undefined;
-  /** Whether the state is known: a host when its reply arrives. */
+  /** Whether the state is known: when the reply to the query arrives, if one does. */
   decided = false;
   /** Whether nothing more of the detection will arrive. */
   done = false;
   #timeout: number | undefined;
   #grace: number | undefined;
   #after: number | undefined;
-  #lateTaken = false;
 
   constructor(options: DetectorOptions = {}) {
     this.n = options.n ?? 1;
@@ -99,23 +103,27 @@ export class Detector {
   }
 
   /**
-   * A reply arrived. Returns whether it answers the query (`a=ok`, `re=q`,
-   * the query's n): it is detection's whenever it arrives. A late one
-   * changes nothing, unless the query asked for it: then the first makes
-   * the terminal a host.
+   * A reply arrived. Returns whether it answers the query (`re=q`, the
+   * query's n, `a=ok` or `a=err`): it is detection's whenever it arrives,
+   * and the caller swallows it. The first decides: a host when it is `a=ok`
+   * with capabilities that decode and name {@link VERSION}, text otherwise,
+   * and done when the DA1 behind it arrives or 300 ms later. A late one
+   * changes nothing, unless the query asked for it: then the first that
+   * makes the terminal a host does.
    */
   reply(r: Reply, now: number): boolean {
     this.#fire(now);
-    if (!(r.ok && r.re === "q" && r.n === this.n)) return false;
+    if (!(r.re === "q" && r.n === this.n)) return false;
+    const caps = r.caps();
+    const host = caps !== undefined && caps.v === VERSION;
     if (this.state === "detecting") {
-      this.state = "native";
+      this.state = host ? "native" : "text";
       this.decided = true;
-      this.caps = r.caps();
+      this.caps = host ? caps : undefined;
       this.#after = Math.min(now + DETECT_AFTER_REPLY, this.#timeout ?? Infinity);
-    } else if (this.state === "text" && this.late && !this.#lateTaken) {
-      this.#lateTaken = true;
+    } else if (this.state === "text" && this.late && host) {
       this.state = "native";
-      this.caps = r.caps();
+      this.caps = caps;
     }
     return true;
   }

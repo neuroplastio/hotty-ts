@@ -74,7 +74,9 @@ export function defaultCaps(): CapsBody {
 export interface HostOptions {
   /**
    * Capability fields to report instead of the defaults' ({@link defaultCaps}),
-   * each sent as its type (SPEC §4): scale as a float, whole or not.
+   * each sent as its type (SPEC §4): scale as a float, whole or not. The
+   * host speaks VERSION whatever v they give: a query that does not list it
+   * gets EVERSION.
    */
   caps?: CapsBody;
   /**
@@ -495,7 +497,10 @@ export class Host implements AsyncIterable<Uint8Array> {
   #do(a: string, m: Message): { code?: string; detail?: string; extra: [string, string][] } {
     const ok = { extra: [] as [string, string][] };
     const err = (code: string, detail: string) => ({ code, detail, extra: [] as [string, string][] });
-    if (a === "q") return ok;
+    // This host speaks VERSION only (SPEC §4): it answers a query that lists
+    // it, in whatever order and among whatever others, and any other with
+    // EVERSION and the version it speaks.
+    if (a === "q") return (m.get("v") ?? "").split(",").includes(VERSION) ? ok : err("EVERSION", VERSION);
     if (a === "res") {
       const id = m.get("id");
       if (!id) return err("EINVAL", "missing id");

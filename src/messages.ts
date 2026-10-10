@@ -133,7 +133,9 @@ export class Reply {
 
   /**
    * The capabilities an ok reply to a query carries; undefined when it
-   * carries none, or they do not decode.
+   * carries none, or they do not decode, as a 0.1 host's JSON does not.
+   * Whatever version they name: the Detector takes the terminal for a host
+   * only when they name the SDK's VERSION.
    */
   caps(): Caps | undefined {
     if (!this.ok || this.re !== "q") return undefined;
@@ -324,7 +326,7 @@ export interface CapsBody {
  * does not know is in raw.
  */
 export class Caps {
-  /** The protocol version the host implements: "0.2". */
+  /** The protocol version the host answers in (SPEC §4): "0.2", for a host this SDK uses. */
   readonly v: string | undefined;
   /** The delta ops it supports; empty when it lists none. */
   readonly ops: string[];

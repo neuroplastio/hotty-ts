@@ -141,12 +141,23 @@ describe("host vectors", () => {
         }
         assert.ok(got.length > 0, `step ${i}: no reply, want ${JSON.stringify(st.reply)}`);
         const r = got[0]!;
-        const { types, ...want } = st.reply;
+        const { types, body, ...want } = st.reply;
+        const hex = Buffer.from(r.message.payload).toString("hex");
         // The body decodes, and each field it has that types names is of
         // its type (conformance/README.md): readBody reads it so.
         if (types !== undefined) {
-          const hex = Buffer.from(r.message.payload).toString("hex");
           assert.ok(readBody(r.message.payload, types as Type), `step ${i}: the body ${hex} is not of its types`);
+        }
+        // The body has each field body names, equal as values: a float is
+        // not an int. Fields it does not name are not checked.
+        if (body !== undefined) {
+          let have: Any;
+          try {
+            have = unpack(r.message.payload, { floats: true });
+          } catch (e) {
+            assert.fail(`step ${i}: the body ${hex} does not decode: ${(e as Error).message}`);
+          }
+          for (const [k, val] of Object.entries(body)) assert.deepEqual(have?.[k], val, `step ${i}: body ${k} (${hex})`);
         }
         // The host lays nothing out: the rows it gives r=auto are an estimate.
         if (st.send.a === "place" && (st.send.r === undefined || st.send.r === "auto")) delete want.r;

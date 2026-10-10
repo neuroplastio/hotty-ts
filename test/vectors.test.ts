@@ -383,7 +383,9 @@ sections("detect", (v) => {
       if (k in st) assert.equal(got[k], st[k], `step ${i} (at ${at}): ${k}`);
     }
   });
-  if (v.caps) {
+  // null: no caps, as when the terminal is no host the SDK can use.
+  if (v.caps === null) assert.equal(det.caps, undefined, "caps, want none");
+  else if (v.caps) {
     assert.ok(det.caps, "no caps");
     match({ v: nul(det.caps.v) }, v.caps, "caps");
   }

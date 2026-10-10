@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import {
   Decoder,
   doc,
+  encode,
   Float,
   focus,
   morphTo,
@@ -331,6 +332,14 @@ describe("Host keys", () => {
     assert.deepEqual(answered(query(7, { late: true }), withdrawLate()), [], "withdrawn");
     assert.deepEqual(answered(query(7, { late: true }), "\x1bc"), [], "a full reset forgets it");
     assert.deepEqual(answered(query(7)), [], "no late answer asked for");
+    const old = new Host({ text: true });
+    old.write(encode([["a", "q"], ["n", 7], ["late", 1]]));
+    old.becomeHost();
+    assert.deepEqual(
+      old.replies().map((r) => [r.get("a"), r.get("n"), r.reply()!.code, r.reply()!.detail]),
+      [["err", "7", "EVERSION", "0.2"]],
+      "answered as any query: one that lists no version is EVERSION",
+    );
     const h = new Host({ text: true });
     assert.equal(h.host, false);
     h.becomeHost();

@@ -4,8 +4,9 @@
 
 import assert from "node:assert/strict";
 
-import { doc, SCROLL_VERTICAL, Scanner, setText } from "../src/index.ts";
+import { doc, encode, SCROLL_VERTICAL, Scanner, setText } from "../src/index.ts";
 import { Link } from "../src/link.ts";
+import { pack } from "../src/msgpack.ts";
 import { Session, type SessionMessage, type Want } from "../src/session.ts";
 import { Terminal } from "../src/terminal.ts";
 import { Host, type HostOptions } from "../src/test/index.ts";
@@ -172,6 +173,30 @@ describe("Session", () => {
     await settle();
     assert.equal(h.replies().length, 0, "the withdrawn query is not answered");
     assert.equal(s.mode, "text");
+  });
+
+  test("a host of another version is text at once; with late, a reply of this version after it is the late answer, even in the same read (SPEC §4)", async () => {
+    const answer = (a: string, body: object) => encode([["a", a], ["n", 1], ["re", "q"]], pack(body));
+    const eversion = answer("err", { code: "EVERSION", detail: "0.3" });
+    for (const late of [false, true]) {
+      const link = new Link({ write: () => {}, clock: new FakeClock() });
+      const msgs: SessionMessage[] = [];
+      const s = new Session({ link, onMessage: (m) => msgs.push(m), late });
+      s.detect();
+      link.bytes(eversion + answer("ok", { v: "0.2", host: "later" }));
+      await settle();
+      if (!late) {
+        assert.deepEqual(msgs, [{ kind: "ready", mode: "text" }], "without late: text, and the host's reply changes nothing");
+        continue;
+      }
+      assert.equal(s.mode, "native");
+      assert.equal(s.caps?.host, "later");
+      assert.deepEqual(
+        msgs.map((m) => m.kind),
+        ["ready", "relayout"],
+        "with late: ready native, once",
+      );
+    }
   });
 
   test("in a terminal that is not a host it is text, and sends nothing", async () => {

@@ -248,8 +248,9 @@ export class Session {
   /**
    * Asks the terminal whether it is a host (SPEC §4), through the link: call
    * it once the program starts. ready comes once it is decided: when the
-   * host replies, when the terminal answers the fence without a reply, or
-   * after 1.5 s of silence.
+   * terminal replies to the query (native for a host of this SDK's version,
+   * text for an error or another version), when it answers the fence
+   * without a reply, or after 1.5 s of silence.
    */
   detect(): void {
     void this.link.detect({ decided: true, late: this.#late }).then((native) => {
@@ -261,9 +262,11 @@ export class Session {
   }
 
   // A late answer (SPEC §4): a host attached after the Session fell back to
-  // text. ready again, and a layout.
+  // text. ready again, and a layout. It may come before ready text does: a
+  // reply to the query that made it text (an error, another version), then
+  // the host's, in one read.
   #lateAnswer(caps: Caps | undefined) {
-    if (this.mode !== "text" || this.#closed) return;
+    if (this.mode === "native" || this.#closed) return;
     this.mode = "native";
     this.caps = caps;
     this.#onMessage({ kind: "ready", mode: "native", caps });

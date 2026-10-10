@@ -115,8 +115,10 @@ export interface LinkOptions {
 export interface DetectOptions {
   /**
    * Resolve once it is decided rather than done: for a program that must
-   * not wait, such as a framework's adapter. A host is decided when its
-   * reply arrives, and done when the DA1 behind it does, or 300 ms later.
+   * not wait, such as a framework's adapter. A terminal that answers the
+   * query is decided when its reply arrives (a host, or with an error or
+   * another version none this SDK can use), and done when the DA1 behind it
+   * does, or 300 ms later.
    */
   decided?: boolean;
   /** Ask for a late answer, as LinkOptions.late; the first call's counts. */
@@ -285,9 +287,12 @@ export class Link {
     const r = m.reply();
     const d = this.#detector;
     if (r && d) {
-      const fellBack = d.done && d.state === "text";
+      // Text: no host answered, or the one that did is not one this SDK
+      // can use, and a reply to the query that makes it one is a late answer.
+      const fellBack = d.state === "text";
       // A withdrawn query's late answer reaches nothing.
-      if (fellBack && this.#withdrawn && r.ok && r.re === "q" && r.n === d.n) return;
+      if (fellBack && this.#withdrawn && r.re === "q" && r.n === d.n) return;
+      // Detection's, ok or an error, whenever it arrives: swallowed.
       if (d.reply(r, this.clock.now())) {
         if (fellBack && d.state === "native") this.#lateAnswer(d.caps);
         else this.#detected();
@@ -406,12 +411,14 @@ export class Link {
   // --- detection ---------------------------------------------------------------
 
   /**
-   * Asks the terminal whether it is a HOTTY host (SPEC §4), once: later
-   * calls answer what the first found, or true once a late answer came. It
-   * resolves when the detection is done, so that nothing of it is left for
-   * whatever reads the terminal next, or with `decided`, as soon as it is
-   * known. A terminal that answers neither the query nor DA1 within 1.5 s
-   * is not a host; a link made with `known` answers at once.
+   * Asks the terminal whether it is a HOTTY host that speaks this SDK's
+   * version (SPEC §4), once: later calls answer what the first found, or
+   * true once a late answer came. It resolves when the detection is done,
+   * so that nothing of it is left for whatever reads the terminal next, or
+   * with `decided`, as soon as it is known. A terminal that answers the
+   * query with an error (EVERSION) or with capabilities of another version,
+   * or answers neither the query nor DA1 within 1.5 s, is not a host; a
+   * link made with `known` answers at once.
    */
   detect(options: DetectOptions = {}): Promise<boolean> {
     if (!this.#done) this.#startDetection(options.late ?? false);

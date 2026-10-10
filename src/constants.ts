@@ -8,7 +8,10 @@ export const CHUNK = 4096;
 export const MAX_SIZE = 1000;
 /** The longest a surface name is (SPEC §3.5). */
 export const MAX_NAME = 64;
-/** The protocol version this SDK implements, as capabilities report it (SPEC §4). */
+/**
+ * The protocol version this SDK speaks (SPEC §4): its query lists it, and a
+ * host's capabilities must name it for the SDK to use the host.
+ */
 export const VERSION = "0.2";
 
 /** Which replies the host sends for a command (SPEC §3.5). */
@@ -49,7 +52,7 @@ export const EVENT_KINDS = [
 export type EventKind = (typeof EVENT_KINDS)[number];
 
 /** The error codes of an `a=err` reply (SPEC §3.6). */
-export const ERROR_CODES = ["EINVAL", "ENOENT", "ENOTARGET", "EDETACHED", "EQUOTA", "EBUDGET"] as const;
+export const ERROR_CODES = ["EINVAL", "ENOENT", "ENOTARGET", "EDETACHED", "EQUOTA", "EBUDGET", "EVERSION"] as const;
 /** One of {@link ERROR_CODES}. */
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

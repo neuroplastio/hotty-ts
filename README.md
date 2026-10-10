@@ -27,7 +27,7 @@ try {
     t.print("hello", "<p>Hello, <b>HTML</b> in the terminal.</p>", { cols: 40, rows: 1 });
     await t.fence(); // the host's replies, before the shell reads the terminal
   } else {
-    console.log("Hello."); // a terminal that is not a host
+    console.log("Hello."); // a terminal that is not a host, or not of this version
   }
 } finally {
   t.close();
@@ -83,8 +83,8 @@ sequences. OpenTUI is one: it may keep the DA1 answers for itself, and it
 writes between its frames. For those, the `Session` stands on a `Link`
 instead of a `Terminal`. The adapter calls `link.osc(seq)` with each OSC,
 which returns whether it was HOTTY's, and `link.da1()` with a DA1 answer it
-does not keep. Detection then decides on the host's reply alone, and is done
-300 ms later. A byte stream goes to `link.bytes(chunk)`.
+does not keep. Detection then decides on the reply to the query alone, and is
+done 300 ms later. A byte stream goes to `link.bytes(chunk)`.
 
 ## Text fields in cells
 
@@ -140,6 +140,16 @@ keepCursor })`.
 
 - **Absence** is `undefined`: a reply's `code`, an event's `fields()`, a
   `Caps` field the host left out.
+- **Versions.** The query lists the version the SDK speaks, `VERSION`
+  (`a=q:n=1:v=0.2`, SPEC §4), and detection takes the terminal for a host
+  only when it answers with capabilities that decode and name it. Any other
+  answer to the query, an error (`EVERSION` from a host of other versions,
+  or another code) or capabilities it cannot read (a 0.1 host's JSON) or of
+  another version, is text at once, done with the DA1 behind it: `detect()`
+  is false, `caps` absent, and the reply, detection's, never reaches the
+  input. With `late`, only a reply that makes the terminal a host is the
+  late answer. The test host speaks 0.2 only, and answers a query that does
+  not list it with `EVERSION`.
 - **Errors** are exceptions: `HottyError` (from `reply.err()`), and
   `NoAnswerError` when a request or a fence gets no answer in time, which
   carries the replies read so far. `NoTerminalError` when the process has no
@@ -198,7 +208,9 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
   run: a vector whose every check is in such steps is reported as skipped.
   An event's detail is compared each value of its type: the vectors' floats
   are read as `Float`s, as `unpack` gives a body's. A reply's `types` is
-  checked by reading its body as that type, as `Reply` and `Caps` read one.
+  checked by reading its body as that type, as `Reply` and `Caps` read one,
+  and its `body` by unpacking it with its floats as `Float`s: each field it
+  names, equal as a value.
 
 ## Development
 
