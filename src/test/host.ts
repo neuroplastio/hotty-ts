@@ -1408,10 +1408,10 @@ function clampStep(d: Drag, x: number, y: number): [number, number] {
 }
 
 // An element's data-steps (SPEC §9.1): "<x>" or "<x> <y>", whole numbers
-// from 0 up; anything else is none.
+// from 0 to 2^53 − 1; anything else is none.
 function steps(el: El): [number, number] {
   const f = (attr(el, "data-steps") ?? "").split(/[ \t\n\f\r]+/).filter((v) => v !== "");
-  if (f.length < 1 || f.length > 2 || !f.every((v) => /^[0-9]+$/.test(v))) return [0, 0];
+  if (f.length < 1 || f.length > 2 || !f.every((v) => /^[0-9]+$/.test(v) && Number.isSafeInteger(Number(v)))) return [0, 0];
   return [Number(f[0]), Number(f[1] ?? 0)];
 }
 

@@ -149,17 +149,22 @@ keepCursor })`.
 - **Bodies.** A host's replies and events carry msgpack maps (SPEC §3.3),
   and `Reply`, `Event` and `Caps` read each whole, every field it knows as
   its type. One that does not decode (an int field sent as `7.0`, a body
-  cut short, nested more than 32 levels deep, or with an int further than
-  2^53 − 1 from zero) leaves undefined what it would fill: `caps()`, an
-  error's `code` and `detail`, `fields()`. The message stands.
+  cut short or nested more than 32 levels deep, or one that holds anywhere,
+  in a field the SDK knows or not, what no host sends: a nil, a map key
+  that is not a string, a string that is not UTF-8, an int further than
+  2^53 − 1 from zero, a timestamp of another size or out of range) leaves
+  undefined what it would fill: `caps()`, an error's `code` and `detail`,
+  `fields()`. The message stands.
 - **msgpack** is read by the SDK's own decoder, not a package: JavaScript
   has one number type, and a reader of HOTTY's bodies keeps floats apart
   from ints. `unpack(bytes)` gives plain values, as an event's `detail` and a
   message's `body()` have them, and with `{ floats: true }` each float as a
   `Float`. A timestamp
   (extension −1) is a `Time`, seconds and nanoseconds since 1970, with
-  `toDate()`; another extension is skipped. The test host writes its bodies
-  with a writer beside it, a float as one even when whole (`scale: 2.0`).
+  `toDate()`; another extension is skipped. What fails a body fails
+  `unpack` too, with a `SyntaxError`, as `JSON.parse` throws. The test host
+  writes its bodies with a writer beside it, a float as one even when whole
+  (`scale: 2.0`), and never a nil or a key that is not a string.
 - **Escape.** A lone ESC at the end of a read is the Escape key once nothing
   follows it within 25 ms (`ESCAPE_DELAY`, the link's `escapeDelay`), so a
   sequence split between two reads is not taken for a key.
@@ -191,7 +196,8 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
   something (scrolling), and the events that follow from a layout, are not
   run: a vector whose every check is in such steps is reported as skipped.
   An event's detail is compared each value of its type: the vectors' floats
-  are read as `Float`s, as `unpack` gives a body's.
+  are read as `Float`s, as `unpack` gives a body's. A reply's `types` is
+  checked by reading its body as that type, as `Reply` and `Caps` read one.
 
 ## Development
 

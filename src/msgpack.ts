@@ -46,12 +46,12 @@ export class Time {
 /**
  * A body field's type (SPEC §3.3): `int`, `float`, `str` or `bool`; `[t]`,
  * an array of t; or a map, by its fields' types, or `{"*": t}`, from
- * strings to t. A field a map's type does not name may hold anything.
+ * strings to t. A field a map's type does not name may be of any type.
  */
 export type Type = "int" | "float" | "str" | "bool" | readonly [Type] | { readonly [field: string]: Type };
 
 // What a value is, from its first byte. The scalars are named as their types.
-type Kind = "nil" | "bool" | "int" | "float" | "str" | "bin" | "array" | "map" | "ext";
+type Kind = "bool" | "int" | "float" | "str" | "bin" | "array" | "map" | "ext";
 
 const MAX_INT = BigInt(Number.MAX_SAFE_INTEGER);
 // A str that is not UTF-8 does not decode; a BOM is a character like any other.
@@ -96,7 +96,8 @@ class Reader {
   }
 
   // One value's head: what it is, and in #v a scalar's value or the length
-  // of an array or a map, whose entries follow.
+  // of an array or a map, whose entries follow. A nil does not decode: no
+  // host sends one (SPEC §3.3).
   #head(): Kind {
     const b = this.#b;
     const dv = this.#dv;
@@ -108,7 +109,7 @@ class Reader {
     if (c <= 0xbf) return this.#str(c & 0x1f);
     switch (c) {
       case 0xc0:
-        return this.#is("nil", null);
+        return fail("a nil, which no host sends");
       case 0xc2:
         return this.#is("bool", false);
       case 0xc3:
@@ -225,6 +226,13 @@ class Reader {
     return n;
   }
 
+  // A map's key, which is a str: one of another type does not decode,
+  // whatever follows it.
+  #key(): string {
+    const k = this.#head();
+    return k === "str" ? (this.#v as string) : fail(`${k} for a key`);
+  }
+
   /** One value, as unpack has it. */
   value(depth: number, floats: boolean): unknown {
     switch (this.#head()) {
@@ -240,9 +248,9 @@ class Reader {
         const n = this.#open(depth, 2);
         const o: Record<string, unknown> = {};
         for (let k = 0; k < n; k++) {
-          const key = this.value(depth + 1, floats);
+          const key = this.#key();
           const v = this.value(depth + 1, floats);
-          if (typeof key === "string" && v !== undefined) put(o, key, v);
+          if (v !== undefined) put(o, key, v);
         }
         return o;
       }
@@ -267,12 +275,7 @@ class Reader {
     const n = this.#open(depth, 2);
     const o: Record<string, unknown> = {};
     for (let i = 0; i < n; i++) {
-      const key = this.value(depth + 1, false);
-      if (typeof key !== "string") {
-        if (each !== undefined) fail(`${typeof key} for a key`);
-        this.value(depth + 1, false); // not a field of any name
-        continue;
-      }
+      const key = this.#key();
       const f = each ?? (Object.hasOwn(fields, key) ? fields[key] : undefined);
       // A field this reader does not know is kept as it came.
       const v = f !== undefined ? this.typed(f, depth + 1) : this.value(depth + 1, false);
@@ -302,16 +305,17 @@ export interface UnpackOptions {
 
 /**
  * The one msgpack value the bytes hold, as plain values: an int or a float
- * is a number (a Float, with `floats`), a str a string, nil null, bin a
- * Uint8Array, a timestamp a {@link Time}, an array an array, and a map an
- * object. A map's entry whose key is not a str is left out, and so is
- * another extension, which an array holds as undefined.
+ * is a number (a Float, with `floats`), a str a string, bin a Uint8Array, a
+ * timestamp a {@link Time}, an array an array, and a map an object. Another
+ * extension is skipped: left out of a map, undefined in an array.
  *
  * Throws a SyntaxError, as JSON.parse does, when the bytes are not one
- * value: cut short, followed by more, or starting with 0xc1. So does a
- * value nested more than {@link MAX_DEPTH} deep, an int further than
- * 2^53 − 1 from zero, a str that is not UTF-8, and a timestamp of another
- * size or with a second's nanoseconds or more.
+ * value: cut short, followed by more, or starting with 0xc1. So does one
+ * that holds, anywhere in it, what no host sends (SPEC §3.3, SDK.md §3.9):
+ * a nil, a map key that is not a str, a str that is not UTF-8, an int
+ * further than 2^53 − 1 from zero, or a timestamp of another size than 4, 8
+ * or 12 bytes, with a second's nanoseconds or more, or with seconds further
+ * than 2^53 − 1 from 1970; and one nested more than {@link MAX_DEPTH} deep.
  */
 export function unpack(data: Uint8Array, options: UnpackOptions = {}): unknown {
   const r = new Reader(data);
@@ -323,8 +327,10 @@ export function unpack(data: Uint8Array, options: UnpackOptions = {}): unknown {
 /**
  * A body read as its type (SDK.md §3.9): one map, each field the type
  * names read as its type, and the others kept as unpack has them.
- * Undefined when the body does not decode: it is not one map, or a field
- * the type names holds another type.
+ * Undefined when the body does not decode: it is not one map, a field the
+ * type names holds another type, or it holds anywhere, in a field the type
+ * names or not, what {@link unpack} throws for (a nil, a key that is not a
+ * str).
  */
 export function readBody(data: Uint8Array, t: Type): Record<string, unknown> | undefined {
   try {
@@ -496,10 +502,11 @@ class Writer {
  * field as its type. A number is an int when it is whole, and a float when
  * it is not, when t says the field is a float, or when it is a
  * {@link Float}. A string is a str, a Uint8Array bin, a {@link Time} a
- * timestamp, an array an array, and a plain object a map, which leaves out
- * a field that is undefined or null. Throws a TypeError for anything else,
- * null and undefined among them, and a RangeError for an int further than
- * 2^53 − 1 from zero.
+ * timestamp, an array an array, and a plain object a map keyed by its
+ * names, strs, which leaves out a field that is undefined or null. Throws a
+ * TypeError for anything else, null and undefined among them (in an array
+ * too), and a RangeError for an int further than 2^53 − 1 from zero: it
+ * writes nothing a host does not send.
  */
 export function pack(v: unknown, t?: Type): Uint8Array {
   const w = new Writer();

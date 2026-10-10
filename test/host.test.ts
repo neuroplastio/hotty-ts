@@ -462,7 +462,8 @@ describe("Host keys in a field", () => {
 describe("Host drags with steps", () => {
   const doc_ =
     "<i id=track data-on=drag data-steps=20>t</i><i id=pad data-on=drag data-steps='0 4'>p</i>" +
-    "<i id=bad data-on=drag data-steps='2.5'>b</i><i id=other data-on=drag>o</i>";
+    "<i id=bad data-on=drag data-steps='2.5'>b</i><i id=other data-on=drag>o</i>" +
+    "<i id=max data-on=drag data-steps='1 9007199254740991'>m</i><i id=big data-on=drag data-steps='1 9007199254740992'>g</i>";
 
   test("a host whose caps say steps reports where in the element the pointer is, as the test gives it: clamped, measured against the element the drag began on, a drag each time it changes (SPEC §9.1)", () => {
     const h = new Host({ caps: { steps: true } });
@@ -484,16 +485,24 @@ describe("Host drags with steps", () => {
       'ev dragend t= {"c":-4,"r":3,"keys":[],"x":0}',
     ]);
     // Only the axes an element counts; a value that is not one or two whole
-    // numbers counts none.
+    // numbers up to 2^53 − 1 counts none.
     h.dragStartStep("s", "pad", 0, 1, 7, 2);
     h.dragEndStep("pad", 0, 1, 7, 3);
     h.dragStartStep("s", "bad", 0, 2, 1, 1);
     h.dragEnd("bad", 0, 2);
+    h.dragStartStep("s", "max", 0, 3, 1, 2 ** 40);
+    h.dragEnd("max", 0, 3);
+    h.dragStartStep("s", "big", 0, 3, 1, 1);
+    h.dragEnd("big", 0, 3);
     assert.deepEqual(sent(h), [
       'ev dragstart t=pad {"c":0,"r":1,"keys":[],"y":2}',
       'ev dragend t=pad {"c":0,"r":1,"keys":[],"y":3}',
       'ev dragstart t=bad {"c":0,"r":2,"keys":[]}',
       'ev dragend t=bad {"c":0,"r":2,"keys":[]}',
+      `ev dragstart t=max {"c":0,"r":3,"keys":[],"x":1,"y":${2 ** 40}}`,
+      `ev dragend t=max {"c":0,"r":3,"keys":[],"x":1,"y":${2 ** 40}}`,
+      'ev dragstart t=big {"c":0,"r":3,"keys":[]}',
+      'ev dragend t=big {"c":0,"r":3,"keys":[]}',
     ]);
     const steps = h.events().filter((e) => e.kind.startsWith("drag")).map((e) => [e.drag()?.x, e.drag()?.y]);
     assert.deepEqual(steps.slice(0, 2), [[3, undefined], [5, undefined]], "Event.drag() reads the steps");

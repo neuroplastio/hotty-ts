@@ -1,9 +1,11 @@
 // The msgpack reader and writer (SPEC §3.3, SDK.md §3.9), at their edges:
 // every form of each type, floats kept apart from ints, depth, ints past
-// 2^53 − 1, what does not decode, and timestamps.
+// 2^53 − 1, nil and keys that are not strs, what does not decode, and
+// timestamps.
 
 import assert from "node:assert/strict";
 
+import { CAPS, DETAIL } from "../src/bodies.ts";
 import { Float, MAX_DEPTH, pack, readBody, Time, type Type, unpack } from "../src/msgpack.ts";
 import { describe, test } from "./harness.ts";
 
@@ -88,8 +90,7 @@ describe("msgpack: unpack", () => {
     doesNotDecode(hex("a3eda080"), /UTF-8/); // a surrogate
   });
 
-  test("nil, true and false; bin of 8, 16 and 32 bits is a Uint8Array", () => {
-    assert.equal(unpack(hex("c0")), null);
+  test("true and false; bin of 8, 16 and 32 bits is a Uint8Array", () => {
     assert.equal(unpack(hex("c3")), true);
     assert.equal(unpack(hex("c2")), false);
     assert.deepEqual(unpack(hex("c40200ff")), new Uint8Array([0, 255]));
@@ -112,10 +113,35 @@ describe("msgpack: unpack", () => {
     assert.deepEqual(unpack(hex("82a16101a16102")), { a: 2 });
   });
 
-  test("a map's key that is not a str: its entry is left out; a known map from strings does not decode", () => {
-    assert.deepEqual(unpack(hex("83 01a178 a162c3 92a17601 a17a")), { b: true });
-    assert.deepEqual(readBody(hex("82 01a178 a176a3302e32"), { v: "str" }), { v: "0.2" });
-    assert.equal(readBody(hex("81 a6 6c696d697473 81 01 02"), { limits: { "*": "int" } }), undefined);
+  test("a nil does not decode, anywhere: the value, in an array, a field known or not, a key, at any depth", () => {
+    for (const h of ["c0", "9201c0", "81a178c0", "81c0a178", "82a178c3a179c0", "81a178 81a179 91c0"]) doesNotDecode(hex(h), /nil/);
+    assert.equal(readBody(hex("81a176c0"), { v: "str" }), undefined, "in a known field");
+    assert.equal(readBody(hex("82a176a3302e32a178c0"), { v: "str" }), undefined, "in a field no one knows");
+    assert.equal(readBody(hex("81a6 6c696d697473 81a173c0"), { limits: { "*": "int" } }), undefined, "in a map from strings");
+    // The vectors' (SDK.md §3.9): in a field no one knows, a known one, and an event's detail.
+    assert.equal(readBody(hex("83a176a3302e32a6667574757265c0a67363726f6c6cc3"), CAPS), undefined);
+    assert.equal(readBody(hex("82a176a3302e32a57363616c65c0"), CAPS), undefined);
+    assert.equal(readBody(hex("82a7636865636b6564c0a576616c7565a161"), DETAIL.get("change")!), undefined);
+  });
+
+  test("a map's key that is not a str does not decode, whatever its type and wherever the map is", () => {
+    // An int, a negative one, bin, a bool, a float, an array, a map, a time, another extension.
+    const keys = ["01", "ff", "c40178", "c3", "cb3ff0000000000000", "91a178", "81a178a179", "d6ff00000000", "d40500"];
+    for (const k of keys) {
+      doesNotDecode(hex("81" + k + "a161"), /for a key/);
+      doesNotDecode(hex("82a161c3" + k + "a161"), /for a key/);
+      doesNotDecode(hex("91 81" + k + "a161"), /for a key/);
+      assert.equal(readBody(hex("82a176a3302e32" + k + "a161"), { v: "str" }), undefined, `${k}, the body's own key`);
+      assert.equal(readBody(hex("82a176a3302e32 a178 81" + k + "a161"), { v: "str" }), undefined, `${k}, in a field no one knows`);
+      assert.equal(readBody(hex("81 a4 63656c6c 81" + k + "02"), { cell: { w: "int" } }), undefined, `${k}, in a known map`);
+      assert.equal(readBody(hex("81 a6 6c696d697473 81" + k + "02"), { limits: { "*": "int" } }), undefined, `${k}, in a map from strings`);
+    }
+    // A key is a str like any other: one that is not UTF-8 does not decode.
+    doesNotDecode(hex("81 a2c328 a161"), /UTF-8/);
+    // The vectors' (SDK.md §3.9): an int and bin in a field no one knows, an int as the body's own key.
+    assert.equal(readBody(hex("83a176a3302e32a66675747572658101a161a67363726f6c6cc3"), CAPS), undefined);
+    assert.equal(readBody(hex("83a176a3302e32a666757475726581c40178a161a67363726f6c6cc3"), CAPS), undefined);
+    assert.equal(readBody(hex("83a176a3302e3201a161a67363726f6c6cc3"), CAPS), undefined);
     assert.deepEqual(readBody(hex("81 a6 6c696d697473 81 a17301"), { limits: { "*": "int" } }), { limits: { s: 1 } });
   });
 
@@ -131,8 +157,8 @@ describe("msgpack: unpack", () => {
 
   test("bytes after the value, a value cut short, or 0xc1 do not decode", () => {
     doesNotDecode(hex(""), /cut short/);
-    doesNotDecode(hex("c0c0"), /after/);
-    doesNotDecode(hex("81a576616c7565a3796573c0"), /after/);
+    doesNotDecode(hex("c3c3"), /after/);
+    doesNotDecode(hex("81a576616c7565a3796573c3"), /after/);
     doesNotDecode(hex("c1"), /0xc1/);
     doesNotDecode(hex("91c1"), /0xc1/);
     // A length past the bytes left, before anything is made that long.
@@ -282,10 +308,17 @@ describe("msgpack: pack", () => {
     assert.throws(() => pack(null), TypeError);
     assert.throws(() => pack(undefined), TypeError);
     assert.throws(() => pack([null]), TypeError);
+    assert.throws(() => pack([undefined]), TypeError);
+    assert.throws(() => pack({ a: [1, null] }), TypeError);
     assert.throws(() => pack({ a: () => 1 }), TypeError);
     assert.throws(() => pack(new Map()), TypeError);
     assert.throws(() => pack(2 ** 53), RangeError);
     assert.throws(() => pack(new Time(0, 1e9)), RangeError);
+  });
+
+  test("a key is a str: an object's names, a number's among them; a symbol's is left out, as JSON.stringify leaves it", () => {
+    assert.equal(toHex(pack({ 1: 2 })), "81a13102");
+    assert.equal(toHex(pack({ [Symbol("s")]: 1, a: 1 })), "81a16101");
   });
 
   test("what it writes reads back, each value of its type", () => {

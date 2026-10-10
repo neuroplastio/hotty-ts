@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Decoder, encode, Float, unpack, type Event, type Reply } from "../src/index.ts";
+import { readBody, type Type } from "../src/msgpack.ts";
 import { Host } from "../src/test/index.ts";
 import { describe, test } from "./harness.ts";
 
@@ -140,7 +141,13 @@ describe("host vectors", () => {
         }
         assert.ok(got.length > 0, `step ${i}: no reply, want ${JSON.stringify(st.reply)}`);
         const r = got[0]!;
-        const want = { ...st.reply };
+        const { types, ...want } = st.reply;
+        // The body decodes, and each field it has that types names is of
+        // its type (conformance/README.md): readBody reads it so.
+        if (types !== undefined) {
+          const hex = Buffer.from(r.message.payload).toString("hex");
+          assert.ok(readBody(r.message.payload, types as Type), `step ${i}: the body ${hex} is not of its types`);
+        }
         // The host lays nothing out: the rows it gives r=auto are an estimate.
         if (st.send.a === "place" && (st.send.r === undefined || st.send.r === "auto")) delete want.r;
         for (const [k, val] of Object.entries(want)) {
