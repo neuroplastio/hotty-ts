@@ -109,8 +109,6 @@ describe("msgpack: unpack", () => {
     assert.deepEqual(unpack(hex("82a16101a162a3787978")), { a: 1, b: "xyx" });
     assert.deepEqual(unpack(hex("de0001 a16101")), { a: 1 });
     assert.deepEqual(unpack(hex("df00000001 a16101")), { a: 1 });
-    // A key twice: the last one stands.
-    assert.deepEqual(unpack(hex("82a16101a16102")), { a: 2 });
   });
 
   test("a nil does not decode, anywhere: the value, in an array, a field known or not, a key, at any depth", () => {
@@ -143,6 +141,18 @@ describe("msgpack: unpack", () => {
     assert.equal(readBody(hex("83a176a3302e32a666757475726581c40178a161a67363726f6c6cc3"), CAPS), undefined);
     assert.equal(readBody(hex("83a176a3302e3201a161a67363726f6c6cc3"), CAPS), undefined);
     assert.deepEqual(readBody(hex("81 a6 6c696d697473 81 a17301"), { limits: { "*": "int" } }), { limits: { s: 1 } });
+  });
+
+  test("a map gives each key once: one given twice does not decode, whatever its form and its values", () => {
+    doesNotDecode(hex("82 a161 01 a161 02"), /given twice/);
+    doesNotDecode(hex("82 a161 01 d90161 01"), /given twice/); // a fixstr, then a str8
+    doesNotDecode(hex("82 a161 d40500 a161 01"), /given twice/); // first an extension, which is left out
+    doesNotDecode(hex("91 82 a161 01 a161 01"), /given twice/);
+    // In a field a reader knows, wrong the first time: the vectors' (SDK.md §3.9).
+    assert.equal(readBody(hex("83a176a3302e32a57363616c65a178a57363616c65cb4000000000000000"), CAPS), undefined);
+    assert.equal(readBody(hex("84a176a3302e32a666757475726501d90666757475726502a67363726f6c6cc3"), CAPS), undefined);
+    // One name in two maps is two keys.
+    assert.deepEqual(unpack(hex("82 a161 81a16101 a162 01")), { a: { a: 1 }, b: 1 });
   });
 
   test("__proto__ is a field like any other", () => {

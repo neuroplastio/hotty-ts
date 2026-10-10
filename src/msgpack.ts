@@ -226,11 +226,16 @@ class Reader {
     return n;
   }
 
-  // A map's key, which is a str: one of another type does not decode,
-  // whatever follows it.
-  #key(): string {
+  // A map's key, which is a str its map has not given before (SPEC §3.3):
+  // one of another type, or given twice, does not decode, whatever follows
+  // it. Keys compare as the strings they are, whatever their form.
+  #key(given: Set<string>): string {
     const k = this.#head();
-    return k === "str" ? (this.#v as string) : fail(`${k} for a key`);
+    if (k !== "str") fail(`${k} for a key`);
+    const key = this.#v as string;
+    if (given.has(key)) fail(`the key ${JSON.stringify(key)} given twice`);
+    given.add(key);
+    return key;
   }
 
   /** One value, as unpack has it. */
@@ -247,8 +252,9 @@ class Reader {
       case "map": {
         const n = this.#open(depth, 2);
         const o: Record<string, unknown> = {};
+        const given = new Set<string>();
         for (let k = 0; k < n; k++) {
-          const key = this.#key();
+          const key = this.#key(given);
           const v = this.value(depth + 1, floats);
           if (v !== undefined) put(o, key, v);
         }
@@ -274,8 +280,9 @@ class Reader {
     const each = Object.hasOwn(fields, "*") ? fields["*"] : undefined;
     const n = this.#open(depth, 2);
     const o: Record<string, unknown> = {};
+    const given = new Set<string>();
     for (let i = 0; i < n; i++) {
-      const key = this.#key();
+      const key = this.#key(given);
       const f = each ?? (Object.hasOwn(fields, key) ? fields[key] : undefined);
       // A field this reader does not know is kept as it came.
       const v = f !== undefined ? this.typed(f, depth + 1) : this.value(depth + 1, false);
@@ -312,10 +319,11 @@ export interface UnpackOptions {
  * Throws a SyntaxError, as JSON.parse does, when the bytes are not one
  * value: cut short, followed by more, or starting with 0xc1. So does one
  * that holds, anywhere in it, what no host sends (SPEC §3.3, SDK.md §3.9):
- * a nil, a map key that is not a str, a str that is not UTF-8, an int
- * further than 2^53 − 1 from zero, or a timestamp of another size than 4, 8
- * or 12 bytes, with a second's nanoseconds or more, or with seconds further
- * than 2^53 − 1 from 1970; and one nested more than {@link MAX_DEPTH} deep.
+ * a nil, a map key that is not a str or is given twice in one map, a str
+ * that is not UTF-8, an int further than 2^53 − 1 from zero, or a timestamp
+ * of another size than 4, 8 or 12 bytes, with a second's nanoseconds or
+ * more, or with seconds further than 2^53 − 1 from 1970; and one nested
+ * more than {@link MAX_DEPTH} deep.
  */
 export function unpack(data: Uint8Array, options: UnpackOptions = {}): unknown {
   const r = new Reader(data);

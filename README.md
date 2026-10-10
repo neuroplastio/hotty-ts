@@ -151,8 +151,9 @@ keepCursor })`.
   its type. One that does not decode (an int field sent as `7.0`, a body
   cut short or nested more than 32 levels deep, or one that holds anywhere,
   in a field the SDK knows or not, what no host sends: a nil, a map key
-  that is not a string, a string that is not UTF-8, an int further than
-  2^53 − 1 from zero, a timestamp of another size or out of range) leaves
+  that is not a string or is given twice in one map, a string that is not
+  UTF-8, an int further than 2^53 − 1 from zero, a timestamp of another
+  size or out of range) leaves
   undefined what it would fill: `caps()`, an error's `code` and `detail`,
   `fields()`. The message stands.
 - **msgpack** is read by the SDK's own decoder, not a package: JavaScript
