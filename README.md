@@ -7,6 +7,11 @@ user does in them. It follows the hotty repository's SDK.md: the same two
 layers, names and defaults as the other SDKs, and every SDK section of the
 conformance vectors.
 
+It speaks HOTTY 0.2: a host's replies and events carry msgpack bodies
+(SPEC §3.3), and its query lists the version it speaks (`a=q:n=1:v=0.2`,
+SPEC §4). A terminal of another HOTTY version, a 0.1 one included, is no
+host to it, and the program draws in cells.
+
 The package is `@neuroplastio/hotty`. It is not published yet: the first
 release will be 0.1.0, once the repository is public.
 
