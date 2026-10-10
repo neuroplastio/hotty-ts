@@ -82,9 +82,11 @@ export class Field {
 
   /**
    * Selects from anchor to caret, as the user does with the pointer;
-   * `select(p, p)` puts the caret at p with nothing selected.
+   * `select(p, p)` puts the caret at p with nothing selected. It ends a run
+   * of row moves.
    */
   select(anchor: number, caret: number): void {
+    this.#goal = undefined;
     this.caret = caret;
     this.anchor = anchor === caret ? undefined : anchor;
   }
