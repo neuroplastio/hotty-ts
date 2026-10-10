@@ -23,7 +23,6 @@ const FEATURES = new Set([
   "event.hover",
   "caps.passthrough",
   "caps.version",
-  "caps.lenient",
   "caps.drag-kinds",
   "options.unordered",
   "doc.scroll",
@@ -295,8 +294,13 @@ sections("decode", (v) => {
       assert.ok(e, "not an event");
       match(eventView(e), want.event, "event");
     }
-    if (want.caps) {
+    if ("caps" in want) {
       const c = m.reply()?.caps();
+      // null: the reply carries none, as when its body does not decode.
+      if (want.caps === null) {
+        assert.equal(c, undefined, "caps, want none");
+        return;
+      }
       assert.ok(c, "no caps");
       match(capsView(c, want.caps), want.caps, "caps");
     }

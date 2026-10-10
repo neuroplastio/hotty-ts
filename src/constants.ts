@@ -9,7 +9,7 @@ export const MAX_SIZE = 1000;
 /** The longest a surface name is (SPEC §3.5). */
 export const MAX_NAME = 64;
 /** The protocol version this SDK implements, as capabilities report it (SPEC §4). */
-export const VERSION = "0.1";
+export const VERSION = "0.2";
 
 /** Which replies the host sends for a command (SPEC §3.5). */
 export type Quiet = 0 | 1 | 2;

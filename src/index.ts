@@ -13,7 +13,8 @@
  *   escape sequences as strings, to write like any other output.
  * - A {@link Scanner} cuts HOTTY sequences out of the bytes a program reads,
  *   a {@link Decoder} turns them into messages, and {@link Reply},
- *   {@link Event} and {@link Caps} read them.
+ *   {@link Event} and {@link Caps} read them. Their bodies are msgpack,
+ *   which {@link unpack} reads.
  * - A {@link Detector} decides whether the terminal is a host, with the time
  *   passed in.
  * - {@link parseKey}, {@link decodeKeys} and {@link Keymap} say what a text
@@ -40,6 +41,7 @@ export { Decoder, type Fed, type Result } from "./decoder.ts";
 export { Scanner, SCAN_MAX, type Segment, type ScannerOptions } from "./scanner.ts";
 export * from "./detector.ts";
 export * from "./messages.ts";
+export { Float, MAX_DEPTH, Time, unpack, type UnpackOptions } from "./msgpack.ts";
 export { getZlib, setZlib, type Zlib } from "./zlib.ts";
 export {
   ACTIONS,

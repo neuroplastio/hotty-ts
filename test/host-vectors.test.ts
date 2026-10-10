@@ -8,14 +8,19 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Decoder, encode, type Event, type Reply } from "../src/index.ts";
+import { Decoder, encode, Float, unpack, type Event, type Reply } from "../src/index.ts";
 import { Host } from "../src/test/index.ts";
 import { describe, test } from "./harness.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const here = dirname(fileURLToPath(import.meta.url));
-const data: Any = JSON.parse(readFileSync(join(here, "testdata", "vectors.json"), "utf8"));
+// A number written with a fraction or an exponent is a float, any other an
+// int (conformance/README.md): a float is read as a Float, as unpack keeps
+// a body's.
+const data: Any = JSON.parse(readFileSync(join(here, "testdata", "vectors.json"), "utf8"), (_k, v, ctx?: { source?: string }) =>
+  typeof v === "number" && /[.eE]/.test(ctx?.source ?? "") ? new Float(v) : v,
+);
 
 // A vector's control as the program sends it: a first, the rest in a stable order.
 function vectorControl(m: Record<string, string>): [string, string][] {
@@ -77,13 +82,16 @@ function checkKey(h: Host, i: number, st: Any) {
     const g = got[j]!;
     assert.deepEqual([g.kind, g.surface, g.target], [w.e, w.s, w.t], `step ${i} (${name}): event ${j}`);
     if (w.detail === undefined) return;
-    const want = structuredClone(w.detail);
+    // The detail, each value of its type: a float is not an int.
+    const detail = g.message.payload.length > 0 ? unpack(g.message.payload, { floats: true }) : null;
+    let want = w.detail;
     // This host lays nothing out, so it knows no element's area.
     if (want !== null && typeof want === "object" && !Array.isArray(want)) {
+      want = { ...want };
       delete want.area;
-      if (Object.keys(want).length === 0 && g.detail === undefined) return;
+      if (Object.keys(want).length === 0 && detail === null) return;
     }
-    assert.deepEqual(g.detail, want, `step ${i} (${name}): event ${j} detail`);
+    assert.deepEqual(detail, want, `step ${i} (${name}): event ${j} detail`);
   });
 }
 

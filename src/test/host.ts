@@ -1,11 +1,13 @@
 // A HOTTY host that runs inside a test (SDK.md §4.4).
 
-import { MAX_SIZE, OPS } from "../constants.ts";
+import { CAPS, DETAIL, ERROR } from "../bodies.ts";
+import { MAX_SIZE, OPS, VERSION } from "../constants.ts";
 import { Decoder } from "../decoder.ts";
 import { encode } from "../encode.ts";
 import { Field } from "../field.ts";
 import { INSERT, parseKey, parseKeymap, resolve as resolveKeymap } from "../keys.ts";
-import { type Area, Caps, type Event, type Message } from "../messages.ts";
+import { type Area, Caps, type CapsBody, type Event, type Message } from "../messages.ts";
+import { pack } from "../msgpack.ts";
 import { validName } from "../names.ts";
 import {
   attr,
@@ -53,28 +55,10 @@ export class HostError extends Error {
   }
 }
 
-/** The capabilities object a host reports (SPEC §4). */
-export interface CapsJson {
-  v?: string;
-  ops?: string[];
-  events?: string[];
-  cell?: { w: number; h: number };
-  scale?: number;
-  scheme?: string;
-  limits?: Record<string, number>;
-  net?: Record<string, string[]>;
-  passthrough?: boolean;
-  scroll?: boolean;
-  steps?: boolean;
-  host?: string;
-  version?: string;
-  [field: string]: unknown;
-}
-
 /** The capabilities a Host reports unless its options say otherwise. */
-export function defaultCaps(): CapsJson {
+export function defaultCaps(): CapsBody {
   return {
-    v: "0.1",
+    v: VERSION,
     ops: [...OPS],
     events: ["click", "change", "input", "submit", "press", "focus", "blur", "resize", "drag", "fit", "hover"],
     cell: { w: 9, h: 18 },
@@ -88,8 +72,11 @@ export function defaultCaps(): CapsJson {
 
 /** Options of a {@link Host}. */
 export interface HostOptions {
-  /** Capability fields to report instead of the defaults' ({@link defaultCaps}). */
-  caps?: CapsJson;
+  /**
+   * Capability fields to report instead of the defaults' ({@link defaultCaps}),
+   * each sent as its type (SPEC §4): scale as a float, whole or not.
+   */
+  caps?: CapsBody;
   /**
    * A terminal that is not a HOTTY host: it answers DA1 and the cursor's
    * position, and ignores HOTTY, until becomeHost.
@@ -164,7 +151,7 @@ function estimateRows(s: Surface, cols: number): number {
 export class Host implements AsyncIterable<Uint8Array> {
   readonly cols: number;
   readonly rows: number;
-  readonly #caps: CapsJson;
+  readonly #caps: CapsBody;
   #text: boolean;
   #late: Message | undefined; // a query asking for a late answer, held while not a host
   readonly #lenient: boolean;
@@ -485,9 +472,9 @@ export class Host implements AsyncIterable<Uint8Array> {
       const s = m.get("s");
       if (s !== undefined) ctl.push(["s", s]);
       ctl.push(["re", a], ...extra);
-      let payload: string | undefined;
-      if (code) payload = JSON.stringify({ code, detail });
-      else if (a === "q") payload = JSON.stringify(this.#caps);
+      let payload: Uint8Array | undefined;
+      if (code) payload = pack({ code, detail }, ERROR);
+      else if (a === "q") payload = pack(this.#caps, CAPS);
       this.#reply(encode(ctl, payload));
     }
     // After the reply: the host lays the document out on its next frame,
@@ -693,9 +680,11 @@ export class Host implements AsyncIterable<Uint8Array> {
     }
   }
 
+  // Sends an event, its detail written as its kind's type: resize's w and
+  // h go out as floats, whole or not.
   #event(s: Surface, kind: string, target: string, detail?: unknown) {
     const ctl: [string, string][] = [["a", "ev"], ["s", s.name], ["e", kind], ["t", target]];
-    this.#reply(encode(ctl, detail === undefined ? undefined : JSON.stringify(detail)));
+    this.#reply(encode(ctl, detail === undefined ? undefined : pack(detail, DETAIL.get(kind))));
   }
 
   // Gives a surface the keyboard at el, taking it from another (which sends
@@ -1298,7 +1287,13 @@ export class Host implements AsyncIterable<Uint8Array> {
     }
   }
 
-  /** Sends any event from a surface, for what the other actions do not cover: a resize, a kind from a later version. */
+  /**
+   * Sends any event from a surface, for what the other actions do not
+   * cover: a resize, a kind from a later version. The detail goes out as a
+   * msgpack map: each field of a kind SPEC §9 lists as its type, so that a
+   * resize's `{ w: 320, h: 48 }` is floats, and in any other field a whole
+   * number as an int, another number or a `Float` as a float.
+   */
   emit(surface: string, kind: string, target: string, detail?: unknown): void {
     if (this.#text) throw new HostError("not-host", "the terminal is not a HOTTY host");
     const s = this.#surfaces.get(surface);

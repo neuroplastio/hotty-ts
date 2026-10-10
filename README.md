@@ -48,7 +48,7 @@ h.surface("hello-hello")?.text(); // "Hello, HTML in the terminal."
 
 | import | what it is | SDK.md |
 | --- | --- | --- |
-| `@neuroplastio/hotty` | the wire layer: builders, `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
+| `@neuroplastio/hotty` | the wire layer: builders, `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, `unpack` for msgpack, and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
 | `@neuroplastio/hotty/field` | `Field`, a text field's value, caret and selection edited by SPEC §10.2's actions, for a program that draws its fields in cells | §4.6 |
 | `@neuroplastio/hotty/terminal` | `Terminal`, for a program with a terminal: one that prints documents and exits, asks a question, or streams a chart | §4.1 |
 | `@neuroplastio/hotty/session` | `Session`, for a UI framework's adapter: modes, layout, relayout, limits, messages | §4.3 |
@@ -56,7 +56,8 @@ h.surface("hello-hello")?.text(); // "Hello, HTML in the terminal."
 | `@neuroplastio/hotty/test` | `Host`, a HOTTY host that runs inside a test. Needs parse5 (an optional peer dependency) | §4.4 |
 
 Only `@neuroplastio/hotty/test` has a dependency. The rest uses the runtime's
-own modules (`node:fs`, `node:tty`, `node:zlib`), which Node and Bun both have.
+own modules (`node:fs`, `node:tty`, `node:zlib`), which Node and Bun both have,
+and reads msgpack with its own decoder (below).
 
 ## A framework's adapter
 
@@ -145,6 +146,20 @@ keepCursor })`.
   terminal, and `HostError` from the test host.
 - **Messages** are discriminated unions on `kind`: the `Scanner`'s segments,
   the link's input, the `Session`'s messages.
+- **Bodies.** A host's replies and events carry msgpack maps (SPEC §3.3),
+  and `Reply`, `Event` and `Caps` read each whole, every field it knows as
+  its type. One that does not decode (an int field sent as `7.0`, a body
+  cut short, nested more than 32 levels deep, or with an int further than
+  2^53 − 1 from zero) leaves undefined what it would fill: `caps()`, an
+  error's `code` and `detail`, `fields()`. The message stands.
+- **msgpack** is read by the SDK's own decoder, not a package: JavaScript
+  has one number type, and a reader of HOTTY's bodies keeps floats apart
+  from ints. `unpack(bytes)` gives plain values, as an event's `detail` and a
+  message's `body()` have them, and with `{ floats: true }` each float as a
+  `Float`. A timestamp
+  (extension −1) is a `Time`, seconds and nanoseconds since 1970, with
+  `toDate()`; another extension is skipped. The test host writes its bodies
+  with a writer beside it, a float as one even when whole (`scale: 2.0`).
 - **Escape.** A lone ESC at the end of a read is the Escape key once nothing
   follows it within 25 ms (`ESCAPE_DELAY`, the link's `escapeDelay`), so a
   sequence split between two reads is not taken for a key.
@@ -161,7 +176,7 @@ keepCursor })`.
 ## Conformance
 
 The vectors are the hotty repository's `conformance/vectors.json`, of
-version 0.1, copied to `test/testdata`, and checked against a checkout of
+version 0.2, copied to `test/testdata`, and checked against a checkout of
 hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 
 - **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan`, `detect`,
@@ -175,6 +190,8 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
   presses, hover), the keys of a vector that has them or that requires
   something (scrolling), and the events that follow from a layout, are not
   run: a vector whose every check is in such steps is reported as skipped.
+  An event's detail is compared each value of its type: the vectors' floats
+  are read as `Float`s, as `unpack` gives a body's.
 
 ## Development
 

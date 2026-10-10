@@ -1,16 +1,19 @@
 // What the host sends: replies, events and capabilities (SDK.md §3.9).
+// Their bodies are msgpack maps (SPEC §3.3), each read whole as its type
+// (bodies.ts): one that does not decode leaves absent what it would fill,
+// and the message stands.
 
+import { CAPS, DETAIL, ERROR } from "./bodies.ts";
 import type { ErrorCode, EventKind, Op } from "./constants.ts";
+import { readBody, unpack } from "./msgpack.ts";
 
 const decoder = new TextDecoder();
 
-/** A JSON object, as a detail or capabilities may be. */
-type Obj = Record<string, unknown>;
+/** A body: a msgpack map's fields, by name. */
+type Body = Record<string, unknown>;
 
-const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
-const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-const isInt = (v: unknown): v is number => Number.isInteger(v);
-const isStr = (v: unknown): v is string => typeof v === "string";
+// A map as unpack gives it, not bin, a time or an array.
+const isMap = (v: unknown): v is Body => typeof v === "object" && v !== null && Object.getPrototypeOf(v) === Object.prototype;
 
 /** A control value as a number: undefined when it is not an integer. */
 function int(s: string | undefined): number | undefined {
@@ -41,11 +44,16 @@ export class Message {
     return decoder.decode(this.payload);
   }
 
-  /** The payload as JSON, or undefined when there is none or it is not JSON. */
-  json(): unknown {
+  /**
+   * The body, one msgpack map (SPEC §3.3), as plain values, whatever their
+   * types ({@link unpack}); undefined when there is none, or it is not one
+   * map that decodes.
+   */
+  body(): Body | undefined {
     if (this.payload.length === 0) return undefined;
     try {
-      return JSON.parse(this.text());
+      const v = unpack(this.payload);
+      return isMap(v) ? v : undefined;
     } catch {
       return undefined;
     }
@@ -102,7 +110,7 @@ export class Reply {
   /** A placement's size, in a reply to place: with auto rows, the rows the host chose. */
   readonly cols: number | undefined;
   readonly rows: number | undefined;
-  /** What went wrong, when not ok. */
+  /** What went wrong, when not ok: absent when the body has none, or does not decode. */
   readonly code: ErrorCode | (string & {}) | undefined;
   readonly detail: string | undefined;
   /** The reply as it came. */
@@ -117,19 +125,20 @@ export class Reply {
     this.cols = int(m.get("c"));
     this.rows = int(m.get("r"));
     if (!this.ok) {
-      const body = m.json();
-      if (isObj(body)) {
-        if (isStr(body.code)) this.code = body.code;
-        if (isStr(body.detail)) this.detail = body.detail;
-      }
+      const body = readBody(m.payload, ERROR);
+      this.code = body?.code as string | undefined;
+      this.detail = body?.detail as string | undefined;
     }
   }
 
-  /** The capabilities an ok reply to a query carries, or undefined. */
+  /**
+   * The capabilities an ok reply to a query carries; undefined when it
+   * carries none, or they do not decode.
+   */
   caps(): Caps | undefined {
     if (!this.ok || this.re !== "q") return undefined;
-    const body = this.message.json();
-    return new Caps(isObj(body) ? body : {});
+    const body = readBody(this.message.payload, CAPS);
+    return body && new Caps(body);
   }
 
   /** The reply as an error, or undefined when ok. */
@@ -150,7 +159,7 @@ export interface Drag {
    * data-steps (SPEC §9.1): a step from 0 to its count, along its width (x)
    * and down its height (y), measured against the element the drag started
    * on wherever the pointer is. Absent along an axis the element does not
-   * count; 0 is a step like any other.
+   * count, which the detail leaves out; 0 is a step like any other.
    */
   x?: number;
   y?: number;
@@ -186,7 +195,11 @@ export interface Link {
   url?: string;
 }
 
-/** What the user did in a surface (SPEC §9). */
+/**
+ * What the user did in a surface (SPEC §9). Its detail is read by its kind
+ * (SDK.md §3.9), and each accessor is undefined where the event does not
+ * carry what it reads, or its detail does not decode.
+ */
 export class Event {
   readonly surface: string;
   /** One of {@link EventKind}, or a kind this SDK does not know, as it came. */
@@ -195,107 +208,123 @@ export class Event {
   readonly target: string;
   /** The event as it came. */
   readonly message: Message;
-  readonly #d: Obj;
+  // The detail read as its kind's type: its fields have their types.
+  readonly #d: Body | undefined;
 
   constructor(m: Message) {
     this.message = m;
     this.surface = m.get("s") ?? "";
     this.kind = m.get("e") ?? "";
     this.target = m.get("t") ?? "";
-    const d = m.json();
-    this.#d = isObj(d) ? d : {};
+    const t = DETAIL.get(this.kind);
+    this.#d = t && readBody(m.payload, t);
   }
 
-  /** The detail, as JSON; undefined when the event carries none. */
-  get detail(): unknown {
-    return this.message.json();
+  /**
+   * The detail as it came ({@link Message.body}), whatever its fields'
+   * types; undefined when the event carries none, or it is not one map.
+   */
+  get detail(): Body | undefined {
+    return this.message.body();
   }
 
   /** The detail's value: a control's, or the value attribute of what was clicked. */
   value(): string | undefined {
-    const v = this.#d.value;
-    return isStr(v) ? v : undefined;
+    const k = this.kind;
+    return k === "click" || k === "change" || k === "input" ? (this.#d?.value as string | undefined) : undefined;
   }
 
   /** A checkbox's or radio button's state, in a change event. */
   checked(): boolean | undefined {
-    const v = this.#d.checked;
-    return typeof v === "boolean" ? v : undefined;
+    return this.kind === "change" ? (this.#d?.checked as boolean | undefined) : undefined;
   }
 
-  /** A submit's fields by name: a value that is not a string as its JSON, a null left out. */
+  /** A submit's fields, by name. */
   fields(): Record<string, string> | undefined {
-    if (this.kind !== "submit") return undefined;
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(this.#d)) {
-      if (v === null) continue;
-      out[k] = isStr(v) ? v : JSON.stringify(v);
-    }
-    return out;
+    return this.kind === "submit" && this.#d ? ({ ...this.#d } as Record<string, string>) : undefined;
   }
 
   /** A clicked link: its href, and its url when there is one. */
   link(): Link | undefined {
-    const { href, url } = this.#d;
-    if (this.kind !== "click" || !isStr(href)) return undefined;
-    return isStr(url) ? { href, url } : { href };
+    const href = this.#d?.href as string | undefined;
+    if (this.kind !== "click" || href === undefined) return undefined;
+    const url = this.#d?.url as string | undefined;
+    return url !== undefined ? { href, url } : { href };
   }
 
   /** A resize's new size, in CSS pixels. */
   size(): { w: number; h: number } | undefined {
-    const { w, h } = this.#d;
-    if (this.kind !== "resize" || !isNum(w) || !isNum(h)) return undefined;
-    return { w, h };
+    const { w, h } = (this.#d ?? {}) as { w?: number; h?: number };
+    return this.kind === "resize" && w !== undefined && h !== undefined ? { w, h } : undefined;
   }
 
   /** The rows a fit event says the document needs now. */
   fitRows(): number | undefined {
-    const r = this.#d.r;
-    return this.kind === "fit" && isInt(r) && r >= 1 ? r : undefined;
+    const r = this.#d?.r as number | undefined;
+    return this.kind === "fit" && r !== undefined && r >= 1 ? r : undefined;
   }
 
   /** A dragstart's, drag's or dragend's cell and keys, and its steps. */
   drag(): Drag | undefined {
     if (this.kind !== "dragstart" && this.kind !== "drag" && this.kind !== "dragend") return undefined;
-    const { c, r, keys, x, y } = this.#d;
-    if (!isInt(c) || !isInt(r)) return undefined;
-    const drag: Drag = { c, r, keys: Array.isArray(keys) ? keys.filter(isStr) : [] };
-    // A step that is not a whole number is absent, and the rest stands.
-    if (isInt(x)) drag.x = x;
-    if (isInt(y)) drag.y = y;
+    const { c, r, keys, x, y } = (this.#d ?? {}) as Partial<Drag>;
+    if (c === undefined || r === undefined) return undefined;
+    const drag: Drag = { c, r, keys: [...(keys ?? [])] };
+    if (x !== undefined) drag.x = x;
+    if (y !== undefined) drag.y = y;
     return drag;
   }
 
   /**
    * A click's or a press's element's cells: where the program places what
-   * belongs next to it, such as a select's list. Absent unless c, r, w and
-   * h are all whole numbers.
+   * belongs next to it, such as a select's list. Absent unless the detail
+   * has all of c, r, w and h.
    */
   area(): Area | undefined {
     if (this.kind !== "click" && this.kind !== "press") return undefined;
-    const a = this.#d.area;
-    if (!isObj(a)) return undefined;
-    const { c, r, w, h } = a;
-    return isInt(c) && isInt(r) && isInt(w) && isInt(h) ? { c, r, w, h } : undefined;
+    const a = this.#d?.area as Partial<Area> | undefined;
+    if (a?.c === undefined || a.r === undefined || a.w === undefined || a.h === undefined) return undefined;
+    return { c: a.c, r: a.r, w: a.w, h: a.h };
   }
 
   /** A hover's cell, or out. The element is the event's target. */
   hover(): Hover | undefined {
     if (this.kind !== "hover") return undefined;
-    if (this.#d.out === true) return { out: true };
-    const { c, r } = this.#d;
-    if (!isInt(c) || !isInt(r)) return undefined;
+    const { c, r, out } = (this.#d ?? {}) as { c?: number; r?: number; out?: boolean };
+    if (out === true) return { out: true };
+    if (c === undefined || r === undefined) return undefined;
     return { c, r, out: false };
   }
 }
 
 /**
- * What a host says about itself in its reply to a query (SPEC §4). Each
- * field is read on its own: one of an unexpected type is ignored, as one
- * the SDK does not know is (SDK.md §2.7).
+ * The capabilities, as a host sends them (SPEC §4): each field of its type,
+ * and any other a later version adds.
+ */
+export interface CapsBody {
+  v?: string;
+  ops?: string[];
+  events?: string[];
+  cell?: { w?: number; h?: number };
+  scale?: number;
+  scheme?: string;
+  limits?: Record<string, number>;
+  net?: Record<string, string[]>;
+  passthrough?: boolean;
+  scroll?: boolean;
+  steps?: boolean;
+  host?: string;
+  version?: string;
+  [field: string]: unknown;
+}
+
+/**
+ * What a host says about itself in its reply to a query (SPEC §4), from a
+ * body whose fields have their types ({@link Reply.caps}). A field the SDK
+ * does not know is in raw.
  */
 export class Caps {
-  /** The protocol version the host implements: "0.1". */
+  /** The protocol version the host implements: "0.2". */
   readonly v: string | undefined;
   /** The delta ops it supports; empty when it lists none. */
   readonly ops: string[];
@@ -321,27 +350,26 @@ export class Caps {
   readonly host: string | undefined;
   /** The implementation's version, with host. */
   readonly version: string | undefined;
-  /** The capabilities object as it came. */
-  readonly raw: Readonly<Record<string, unknown>>;
+  /** The capabilities as they came, the fields the SDK does not know among them. */
+  readonly raw: Readonly<CapsBody>;
 
-  constructor(raw: Record<string, unknown> = {}) {
-    this.raw = raw;
-    this.v = isStr(raw.v) ? raw.v : undefined;
-    this.ops = Array.isArray(raw.ops) ? raw.ops.filter(isStr) : [];
-    this.events = Array.isArray(raw.events) ? raw.events.filter(isStr) : [];
-    const cell = raw.cell;
-    this.cell = isObj(cell) && isNum(cell.w) && isNum(cell.h) ? { w: cell.w, h: cell.h } : undefined;
-    this.scale = isNum(raw.scale) ? raw.scale : undefined;
-    this.scheme = isStr(raw.scheme) ? raw.scheme : undefined;
-    this.limits = {};
-    if (isObj(raw.limits)) for (const [k, v] of Object.entries(raw.limits)) if (isInt(v)) this.limits[k] = v;
+  constructor(body: CapsBody = {}) {
+    this.raw = body;
+    this.v = body.v;
+    this.ops = [...(body.ops ?? [])];
+    this.events = [...(body.events ?? [])];
+    const cell = body.cell;
+    this.cell = cell?.w !== undefined && cell.h !== undefined ? { w: cell.w, h: cell.h } : undefined;
+    this.scale = body.scale;
+    this.scheme = body.scheme;
+    this.limits = { ...body.limits };
     this.net = {};
-    if (isObj(raw.net)) for (const [k, v] of Object.entries(raw.net)) if (Array.isArray(v)) this.net[k] = v.filter(isStr);
-    this.passthrough = raw.passthrough === true;
-    this.scroll = raw.scroll === true;
-    this.steps = raw.steps === true;
-    this.host = isStr(raw.host) ? raw.host : undefined;
-    this.version = isStr(raw.version) ? raw.version : undefined;
+    for (const [k, v] of Object.entries(body.net ?? {})) this.net[k] = [...v];
+    this.passthrough = body.passthrough === true;
+    this.scroll = body.scroll === true;
+    this.steps = body.steps === true;
+    this.host = body.host;
+    this.version = body.version;
   }
 
   /** Whether the host supports a delta op. A host that lists no ops is taken to support them all. */

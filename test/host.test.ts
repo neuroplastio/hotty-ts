@@ -1,12 +1,26 @@
 // The test host where the host vectors cannot see. Its morph (SPEC §6.2):
 // the vectors inspect a document's markup, not which elements stayed the
 // same, and with them what the user did there. Scroll and area (SPEC §5.1,
-// §9), whose host vectors land with the hosts. And keys (SPEC §10.2) on
-// every kind of element, beyond the vectors'.
+// §9), whose host vectors land with the hosts. Keys (SPEC §10.2) on every
+// kind of element, beyond the vectors'. And the types of its bodies' fields
+// (SPEC §3.3), which the vectors' JSON does not show.
 
 import assert from "node:assert/strict";
 
-import { Decoder, doc, focus, morphTo, place, placeAt, query, SCROLL_HORIZONTAL, SCROLL_VERTICAL, withdrawLate } from "../src/index.ts";
+import {
+  Decoder,
+  doc,
+  Float,
+  focus,
+  morphTo,
+  place,
+  placeAt,
+  query,
+  SCROLL_HORIZONTAL,
+  SCROLL_VERTICAL,
+  unpack,
+  withdrawLate,
+} from "../src/index.ts";
 import { Host } from "../src/test/index.ts";
 import { describe, test } from "./harness.ts";
 
@@ -123,6 +137,45 @@ describe("Host scroll and area", () => {
       ["click", "go", null],
     ]);
     assert.equal(h.events().find((e) => e.kind === "click")!.value(), "x", "the value beside the area");
+  });
+});
+
+describe("Host bodies", () => {
+  // A message's body, each value of its type: a float as a Float.
+  const typed = (payload: Uint8Array) => unpack(payload, { floats: true }) as Record<string, unknown>;
+
+  test("the capabilities and an error are msgpack maps, each field of its type: scale a float even when whole, and a field with nothing in it left out (SPEC §3.3, §4)", () => {
+    const h = new Host({ caps: { scale: 2, host: undefined, later: [1, 0.5] } });
+    h.write(query(1) + focus("nope", "", { n: 2 }));
+    const [q, err] = h.replies();
+    const body = typed(q!.payload);
+    assert.equal(body.v, "0.2");
+    assert.deepEqual(body.scale, new Float(2));
+    assert.deepEqual(body.cell, { w: 9, h: 18 });
+    assert.deepEqual(body.later, [1, new Float(0.5)]);
+    assert.ok(!("host" in body));
+    const caps = q!.reply()!.caps()!;
+    assert.deepEqual([caps.v, caps.scale, caps.cellCss(), caps.raw.later], ["0.2", 2, { w: 4.5, h: 9 }, [1, 0.5]]);
+    assert.deepEqual(typed(err!.payload), { code: "ENOENT", detail: "no surface nope" });
+    assert.deepEqual([err!.reply()!.code, err!.reply()!.detail], ["ENOENT", "no surface nope"]);
+  });
+
+  test("an event's detail goes out as its kind's type: a resize's size as floats, a fit's rows as an int; a Float is a float in any field (SPEC §9)", () => {
+    const h = new Host();
+    h.write(doc("s", "<p>x</p>") + placeAt("s", 0, 0, { cols: 10, rows: 1 }));
+    h.emit("s", "resize", "", { w: 320, h: 48.5 });
+    h.emit("s", "fit", "", { r: 3 });
+    h.emit("s", "fit", "", { r: new Float(3) });
+    h.emit("s", "later", "x", { n: 2, f: 2.5, g: new Float(1), none: null });
+    const [resize, fit, fitFloat, later] = h.events();
+    assert.deepEqual(typed(resize!.message.payload), { w: new Float(320), h: new Float(48.5) });
+    assert.deepEqual(resize!.size(), { w: 320, h: 48.5 });
+    assert.deepEqual(typed(fit!.message.payload), { r: 3 });
+    assert.equal(fit!.fitRows(), 3);
+    // A count of rows sent as a float does not decode, and the event stands.
+    assert.deepEqual([fitFloat!.kind, fitFloat!.fitRows(), fitFloat!.detail], ["fit", undefined, { r: 3 }]);
+    assert.deepEqual(typed(later!.message.payload), { n: 2, f: new Float(2.5), g: new Float(1) });
+    assert.deepEqual(later!.detail, { n: 2, f: 2.5, g: 1 });
   });
 });
 

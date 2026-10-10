@@ -17,5 +17,5 @@
  * @module
  */
 
-export { Host, HostError, defaultCaps, type CapsJson, type HostErrorCode, type HostOptions } from "./host.ts";
+export { Host, HostError, defaultCaps, type HostErrorCode, type HostOptions } from "./host.ts";
 export { Surface, type Child, type Inspected } from "./dom.ts";
