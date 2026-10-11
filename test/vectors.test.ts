@@ -269,10 +269,13 @@ function capsView(c: hotty.Caps, want: Any) {
 const isPlain = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 // Every key want lists equals got's: objects key by key, numbers as numbers.
+// A view's areas are compared whole: the same ids, each with the same area
+// (conformance/README.md, Decode).
 function match(got: Record<string, unknown>, want: Record<string, unknown>, path: string) {
   for (const [k, w] of Object.entries(want)) {
     const g = got[k] ?? null;
-    if (isPlain(w) && isPlain(g)) match(g, w, `${path}.${k}`);
+    if (k === "areas" && path.endsWith(".view")) assert.deepEqual(g, w, `${path}.${k}`);
+    else if (isPlain(w) && isPlain(g)) match(g, w, `${path}.${k}`);
     else assert.deepEqual(g, w, `${path}.${k}`);
   }
 }
