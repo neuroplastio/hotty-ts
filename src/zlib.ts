@@ -5,15 +5,18 @@
 // it neither compresses nor inflates, unless the program gives it one
 // (setZlib).
 
-/** A zlib codec: deflate and inflate, synchronously. inflate throws on bad data. */
+/**
+ * A zlib codec: deflate and inflate, synchronously. inflate throws on bad
+ * data, and on data that inflates to more than max bytes when a max is given.
+ */
 export interface Zlib {
   deflate(data: Uint8Array): Uint8Array;
-  inflate(data: Uint8Array): Uint8Array;
+  inflate(data: Uint8Array, max?: number): Uint8Array;
 }
 
 interface NodeZlib {
   deflateSync(data: Uint8Array, options: { level: number }): Uint8Array;
-  inflateSync(data: Uint8Array): Uint8Array;
+  inflateSync(data: Uint8Array, options?: { maxOutputLength?: number }): Uint8Array;
 }
 
 const plain = (b: Uint8Array) => (b.constructor === Uint8Array ? b : new Uint8Array(b.buffer, b.byteOffset, b.byteLength));
@@ -31,7 +34,7 @@ function runtime(): Zlib | null {
   return {
     // The fastest level, as hotty-go and the Python client compress.
     deflate: (data) => plain(node.deflateSync(data, { level: 1 })),
-    inflate: (data) => plain(node.inflateSync(data)),
+    inflate: (data, max) => plain(node.inflateSync(data, max === undefined ? {} : { maxOutputLength: max })),
   };
 }
 

@@ -53,13 +53,37 @@ function continuation(ctl: Map<string, string>): boolean {
 const fed = (result: "not_hotty" | "partial" | "invalid"): Fed => ({ result });
 
 /**
+ * A Decoder's max when it sets none: 16 MiB, enough for a document with its
+ * images inline, and a bound on what a peer can make a Decoder hold.
+ */
+export const DEFAULT_MAX = 16 << 20;
+
+// The most base64 a payload of max bytes is sent as: zlib may make it a
+// little longer than it decodes to.
+const encodedMax = (max: number) => Math.ceil((max + Math.floor(max / 256) + 64) / 3) * 4;
+
+/**
  * Turns OSC sequences into messages, joining chunked ones (SPEC §3.4). A
  * new Decoder is ready to use.
  */
 export class Decoder {
   /** The malformed messages dropped so far, aborted chunked ones included (SPEC §3.7). */
   invalid = 0;
-  #pending: { ctl: Map<string, string>; pieces: string[] } | undefined;
+  /**
+   * The most bytes a message's payload may decode to, after base64 and
+   * zlib; one that would decode to more is invalid, and its chunks are not
+   * kept (SPEC §3.4 lets a host limit a message). Zero is
+   * {@link DEFAULT_MAX}. A host sets it to what it accepts from a program,
+   * at least 1 MiB.
+   */
+  max = 0;
+  // A chunked message's control and base64 so far; over when it passed
+  // max, and its chunks are dropped as they come.
+  #pending: { ctl: Map<string, string>; pieces: string[]; size: number; over: boolean } | undefined;
+
+  #max(): number {
+    return this.max > 0 ? this.max : DEFAULT_MAX;
+  }
 
   /**
    * Takes one OSC sequence, `ESC ] …`, with or without its terminator (ST
@@ -87,19 +111,31 @@ export class Decoder {
       const m = ctl.get("m");
       const pending = this.#pending;
       if (!pending || (m !== "0" && m !== "1")) return this.#bad();
-      pending.pieces.push(b64);
+      if (!pending.over && pending.size + b64.length > encodedMax(this.#max())) {
+        // Too long: counted once, and its chunks dropped as they come.
+        pending.pieces = [];
+        pending.over = true;
+        this.invalid++;
+      }
+      if (!pending.over) {
+        pending.pieces.push(b64);
+        pending.size += b64.length;
+      }
       if (m === "1") return fed("partial");
       this.#pending = undefined;
+      if (pending.over) return fed("invalid");
       return this.#finish(pending.ctl, pending.pieces.join(""));
     }
     if (this.#pending) {
       // Another message before the last chunk aborts the one in progress.
+      if (!this.#pending.over) this.invalid++;
       this.#pending = undefined;
-      this.invalid++;
     }
     const m = ctl.get("m");
     if (m === "1") {
-      this.#pending = { ctl, pieces: [b64] };
+      const over = b64.length > encodedMax(this.#max());
+      if (over) this.invalid++;
+      this.#pending = { ctl, pieces: over ? [] : [b64], size: over ? 0 : b64.length, over };
       return fed("partial");
     }
     if (m !== undefined && m !== "0") return this.#bad();
@@ -110,28 +146,30 @@ export class Decoder {
   // two (SPEC §3.7).
   #bad(): Fed {
     if (this.#pending) {
+      if (!this.#pending.over) this.invalid++;
       this.#pending = undefined;
-      this.invalid++;
     }
     this.invalid++;
     return fed("invalid");
   }
 
+  // A payload that decodes to more than max bytes is refused, and
+  // inflating stops past it.
   #finish(ctl: Map<string, string>, b64: string): Fed {
-    let payload = fromBase64(b64);
-    if (!payload) {
-      this.invalid++;
-      return fed("invalid");
-    }
-    if (ctl.get("o") === "z") {
+    const max = this.#max();
+    let payload = b64.length > encodedMax(max) ? undefined : fromBase64(b64);
+    if (payload && ctl.get("o") === "z") {
       const z = getZlib();
       try {
         if (!z) throw new Error("no zlib");
-        payload = z.inflate(payload);
+        payload = z.inflate(payload, max);
       } catch {
-        this.invalid++;
-        return fed("invalid");
+        payload = undefined;
       }
+    }
+    if (!payload || payload.length > max) {
+      this.invalid++;
+      return fed("invalid");
     }
     ctl.delete("m");
     ctl.delete("o");

@@ -37,7 +37,7 @@ export { Control, type ControlLike, type Pair } from "./control.ts";
 export { encode, cleanValue, type EncodeOptions } from "./encode.ts";
 export * from "./commands.ts";
 export { validName, surfaceName } from "./names.ts";
-export { Decoder, type Fed, type Result } from "./decoder.ts";
+export { DEFAULT_MAX, Decoder, type Fed, type Result } from "./decoder.ts";
 export { Scanner, SCAN_MAX, type Segment, type ScannerOptions } from "./scanner.ts";
 export * from "./detector.ts";
 export * from "./messages.ts";
