@@ -39,4 +39,5 @@ export const DETAIL: ReadonlyMap<string, Type> = new Map([
   ["drag", DRAG],
   ["dragend", DRAG],
   ["hover", { c: "int", r: "int", out: "bool" }],
+  ["view", { in: { "*": AREA }, end: "bool" }],
 ]);

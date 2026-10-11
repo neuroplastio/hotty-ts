@@ -177,16 +177,28 @@ export interface Hover {
 }
 
 /**
- * The cells an element covers, as a click or a press reports them (SPEC §9):
- * from 0 at the surface's top left cell, as a drag's are. An element partly
- * clipped or scrolled away reports its whole area, so c and r may be
- * negative or past the surface.
+ * The cells an element covers, as a click, a press or a view reports them
+ * (SPEC §9): from 0 at the surface's top left cell, as a drag's are. An
+ * element partly clipped or scrolled away reports its whole area, so c and
+ * r may be negative or past the surface.
  */
 export interface Area {
   c: number;
   r: number;
   w: number;
   h: number;
+}
+
+/** Which elements are in view, and whether the document shows its end (SPEC §9.5). */
+export interface View {
+  /**
+   * Each element with data-on~=view and an id that is in view, by its id,
+   * with its cells as a click's area has them: the whole element, however
+   * little of it is shown.
+   */
+  areas: Record<string, Area>;
+  /** The document's root is scrolled as far down as it goes, as a root that does not scroll down always is. */
+  atEnd: boolean;
 }
 
 /** A clicked link (SPEC §9). */
@@ -297,6 +309,24 @@ export class Event {
     if (c === undefined || r === undefined) return undefined;
     return { c, r, out: false };
   }
+
+  /**
+   * A view's elements in view and whether the document shows its end. It
+   * names every element in view, not what changed. An element whose area
+   * lacks one of c, r, w and h is left out.
+   */
+  view(): View | undefined {
+    if (this.kind !== "view" || !this.#d) return undefined;
+    const given = (this.#d.in ?? {}) as Record<string, Partial<Area>>;
+    const areas = Object.fromEntries(
+      Object.entries(given).flatMap(([id, a]) =>
+        a.c === undefined || a.r === undefined || a.w === undefined || a.h === undefined
+          ? []
+          : [[id, { c: a.c, r: a.r, w: a.w, h: a.h }] as const],
+      ),
+    );
+    return { areas, atEnd: this.#d.end === true };
+  }
 }
 
 /**
@@ -400,6 +430,11 @@ export class Caps {
   /** Whether the host sends hover (SPEC §9.4); like drags, not when it lists no kinds. */
   hovers(): boolean {
     return this.events.includes("hover");
+  }
+
+  /** Whether the host reports which elements are in view (SPEC §9.5); like drags, not when it lists no kinds. */
+  views(): boolean {
+    return this.events.includes("view");
   }
 
   /** Whether the terminal's colour scheme is light. */

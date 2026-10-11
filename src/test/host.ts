@@ -140,8 +140,10 @@ function estimateRows(s: Surface, cols: number): number {
  * with the delta operations and the morph of SPEC §6, and answers each
  * command as SPEC §3.6 has hosts do. It lays nothing out and draws no
  * pixels: a placement with auto rows gets an estimate (autoRows), a click
- * or a press reports the area the test gave its element (setArea), and a
- * document that asks to scroll records its axes (Surface.scroll).
+ * or a press reports the area the test gave its element (setArea), a
+ * document that asks to scroll records its axes (Surface.scroll), and
+ * reveal scrolls nothing. It does not list view: what is in view is a
+ * test's to emit.
  *
  * It also answers what terminals answer: Primary Device Attributes, the
  * cursor's position, the background colour, and, when asked to, the kitty

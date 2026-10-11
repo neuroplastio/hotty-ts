@@ -471,6 +471,12 @@ export class Surface {
       case "var":
         setAttr(t, "style", setStyleProp(attr(t, "style") ?? "", varName(key), payload));
         break;
+      case "reveal":
+        // It changes no node, and this host lays nothing out: nothing scrolls.
+        if (payload !== "" && payload !== "start" && payload !== "end") {
+          return { code: "EINVAL", detail: "reveal takes start, end or none" };
+        }
+        break;
       default:
         return { code: "EINVAL", detail: "unknown op " + op };
     }

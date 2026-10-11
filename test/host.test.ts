@@ -178,6 +178,19 @@ describe("Host bodies", () => {
     assert.deepEqual(typed(later!.message.payload), { n: 2, f: new Float(2.5), g: new Float(1) });
     assert.deepEqual(later!.detail, { n: 2, f: 2.5, g: 1 });
   });
+
+  test("a view's areas go out as ints, and an element whose area lacks a field is left out of view(); the event stands (SPEC §9.5)", () => {
+    const h = new Host();
+    h.write(doc("s", "<p id=a data-on=view>x</p>") + placeAt("s", 0, 0, { cols: 10, rows: 1 }));
+    h.emit("s", "view", "", { in: { a: { c: 0, r: -2, w: 4, h: 3 }, b: { c: 0, r: 1, w: 4 } }, end: false });
+    h.emit("s", "view", "", { end: true });
+    h.emit("s", "view", "", {});
+    const [view, end, empty] = h.events();
+    assert.deepEqual(typed(view!.message.payload), { in: { a: { c: 0, r: -2, w: 4, h: 3 }, b: { c: 0, r: 1, w: 4 } }, end: false });
+    assert.deepEqual(view!.view(), { areas: { a: { c: 0, r: -2, w: 4, h: 3 } }, atEnd: false });
+    assert.deepEqual(end!.view(), { areas: {}, atEnd: true });
+    assert.deepEqual(empty!.view(), { areas: {}, atEnd: false });
+  });
 });
 
 // What the host sent the program since the last call: an event as a line,

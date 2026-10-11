@@ -235,6 +235,18 @@ export function morphTo(surface: string, target: string, html: string, opts?: Re
 }
 
 /**
+ * Scrolls an element into view, in each box that holds it, the innermost
+ * first (SPEC §6.1): with "start" its top to the top, with "end" its bottom
+ * to the bottom, and with "" by as little as brings it into view. It moves
+ * no focus and sends no event of its own, and in a document that asked for
+ * no scrolling it moves nothing. A host that lacks it does not list it
+ * (`caps.supports("reveal")`).
+ */
+export function reveal(surface: string, target: string, where: "start" | "end" | "" = "", opts?: ReplyOptions): string {
+  return delta(surface, "reveal", target, "", where, opts);
+}
+
+/**
  * Stores a resource that documents refer to as `cid:<id>` (SPEC §7.1).
  * Sending it again replaces it, and redraws every surface that refers to it.
  */

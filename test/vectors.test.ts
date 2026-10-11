@@ -27,6 +27,9 @@ const FEATURES = new Set([
   "options.unordered",
   "doc.scroll",
   "event.area",
+  "event.view",
+  "caps.views",
+  "reveal",
   "caps.scroll",
   "decode.abort-count",
   "decode.unterminated",
@@ -138,6 +141,8 @@ function build(b: Any): string {
       return hotty.removeAttr(a.surface, a.target, a.name, ro);
     case "morph_to":
       return hotty.morphTo(a.surface, a.target, a.html, ro);
+    case "reveal":
+      return hotty.reveal(a.surface, a.target, a.where ?? "", ro);
     case "res":
       return hotty.res(a.id, a.mime, a.data, ro);
     case "del_res":
@@ -218,6 +223,7 @@ function eventView(e: hotty.Event) {
   const link = e.link();
   const hover = e.hover();
   const drag = e.drag();
+  const view = e.view();
   return {
     surface: e.surface,
     kind: e.kind,
@@ -231,6 +237,7 @@ function eventView(e: hotty.Event) {
     drag: drag ? { ...drag, x: nul(drag.x), y: nul(drag.y) } : null,
     hover: hover ? { c: nul(hover.c), r: nul(hover.r), out: hover.out } : null,
     area: nul(e.area()),
+    view: view ? { areas: view.areas, at_end: view.atEnd } : null,
   };
 }
 
@@ -251,6 +258,7 @@ function capsView(c: hotty.Caps, want: Any) {
     version: nul(c.version),
     drags: c.drags(),
     hovers: c.hovers(),
+    views: c.views(),
     light: c.light(),
     cell_css: c.cellCss(),
     supports: Object.fromEntries(Object.keys(want.supports ?? {}).map((op) => [op, c.supports(op)])),

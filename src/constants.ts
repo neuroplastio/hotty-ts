@@ -44,6 +44,7 @@ export const EVENT_KINDS = [
   "resize",
   "fit",
   "hover",
+  "view",
   "dragstart",
   "drag",
   "dragend",
@@ -70,6 +71,7 @@ export const OPS = [
   "unattr",
   "text",
   "var",
+  "reveal",
 ] as const;
 /** One of {@link OPS}. */
 export type Op = (typeof OPS)[number];

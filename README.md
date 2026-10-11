@@ -138,8 +138,9 @@ document models are the program's, as SDK.md §1 has it.
 
 ## Names and choices
 
-The names are Appendix A's TypeScript column: `placeAt`, `setText`, `delRes`,
-`del` (`delete` is a reserved word), `fitRows`, `cellCss`. Options are
+The names are Appendix A's TypeScript column: `placeAt`, `setText`, `reveal`,
+`delRes`, `del` (`delete` is a reserved word), `fitRows`, `cellCss`, and on
+`Event` and `Caps` `view()` and `views()`. Options are
 objects: `doc(s, html, { detached: true, q: 0 })`, `place(s, { cols, rows,
 keepCursor })`.
 
@@ -207,10 +208,12 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 - **Host section.** The test host runs the commands, the inspections and
   the keys of the host vectors (`Host.key`, SPEC §10.2). It lays nothing
   out, so the rows it gives `r=auto` are an estimate and are not checked,
-  and an event's `area` is not either. The vectors' pointer steps (drags,
-  presses, hover), the keys of a vector that has them or that requires
-  something (scrolling), and the events that follow from a layout, are not
-  run: a vector whose every check is in such steps is reported as skipped.
+  and an event's `area` is not either; `reveal` answers as a host does and
+  scrolls nothing, and `view` is not in its `events`. The vectors' pointer
+  steps (drags, presses, hover), the keys of a vector that has them or that
+  requires something (scrolling), and the events that follow from a layout
+  (`view` among them), are not run: a vector whose every check is in such
+  steps is reported as skipped.
   An event's detail is compared each value of its type: the vectors' floats
   are read as `Float`s, as `unpack` gives a body's. A reply's `types` is
   checked by reading its body as that type, as `Reply` and `Caps` read one,
