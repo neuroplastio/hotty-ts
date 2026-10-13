@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 
 import {
+  DEFAULT_MAX,
   Decoder,
   doc,
   encode,
@@ -17,6 +18,7 @@ import {
   place,
   placeAt,
   query,
+  res,
   SCROLL_HORIZONTAL,
   SCROLL_VERTICAL,
   unpack,
@@ -117,6 +119,16 @@ describe("Host scroll and area", () => {
     old.write(doc("s", "<p>c</p>", { scroll: SCROLL_VERTICAL }));
     assert.equal(old.surface("s")!.scroll, 0);
     assert.equal(old.caps.scroll, false);
+  });
+
+  test("the host reports the limit it decodes a message with, and drops a message past it (SPEC §13)", () => {
+    assert.equal(new Host().caps.limits.message, DEFAULT_MAX);
+    assert.equal(new Host({ caps: { limits: { surfaces: 2 } } }).caps.limits.message, DEFAULT_MAX);
+    const h = new Host({ lenient: true, caps: { limits: { message: 8 } } });
+    assert.equal(h.caps.limits.message, 8);
+    h.write(res("r", "text/css", "012345678") + res("s", "text/css", "01234567"));
+    assert.equal(h.resource("r"), undefined);
+    assert.ok(h.resource("s"));
   });
 
   test("a click and a press carry the area the test gave the element, and none otherwise", () => {

@@ -74,7 +74,7 @@ export class Decoder {
    * zlib; one that would decode to more is invalid, and its chunks are not
    * kept (SPEC §3.4 lets a host limit a message). Zero is
    * {@link DEFAULT_MAX}. A host sets it to what it accepts from a program,
-   * at least 1 MiB.
+   * at least 1 MiB, and reports it as `limits.message` (SPEC §13).
    */
   max = 0;
   // A chunked message's control and base64 so far; over when it passed

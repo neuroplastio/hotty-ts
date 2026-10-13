@@ -368,7 +368,7 @@ export class Caps {
   readonly scale: number | undefined;
   /** The terminal's colour scheme: "dark" or "light". */
   readonly scheme: string | undefined;
-  /** The host's limits, such as surfaces (a count) and resources (bytes) (SPEC §13). */
+  /** The host's limits, such as surfaces (a count), resources and message (bytes) (SPEC §13). */
   readonly limits: Record<string, number>;
   /** The host's network policy, from directive to the sources it allows (SPEC §7.2): empty when it fetches nothing. */
   readonly net: Record<string, string[]>;

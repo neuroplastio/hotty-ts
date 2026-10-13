@@ -32,6 +32,7 @@ const FEATURES = new Set([
   "reveal",
   "caps.scroll",
   "decode.abort-count",
+  "decode.max",
   "decode.unterminated",
   "scanner.da1",
   "graphemes",
@@ -282,6 +283,7 @@ function match(got: Record<string, unknown>, want: Record<string, unknown>, path
 
 sections("decode", (v) => {
   const dec = new hotty.Decoder();
+  dec.max = v.max ?? 0;
   const results: string[] = [];
   const msgs: hotty.Message[] = [];
   for (const s of v.seqs) {

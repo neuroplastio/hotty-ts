@@ -2,7 +2,7 @@
 
 import { CAPS, DETAIL, ERROR } from "../bodies.ts";
 import { MAX_SIZE, OPS, VERSION } from "../constants.ts";
-import { Decoder } from "../decoder.ts";
+import { DEFAULT_MAX, Decoder } from "../decoder.ts";
 import { encode } from "../encode.ts";
 import { Field } from "../field.ts";
 import { INSERT, parseKey, parseKeymap, resolve as resolveKeymap } from "../keys.ts";
@@ -64,7 +64,7 @@ export function defaultCaps(): CapsBody {
     cell: { w: 9, h: 18 },
     scale: 1,
     scheme: "dark",
-    limits: { surfaces: 64 },
+    limits: { surfaces: 64, message: DEFAULT_MAX },
     scroll: true,
     host: "hotty-ts-test",
   };
@@ -196,6 +196,12 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.cols = options.cols ?? 80;
     this.rows = options.rows ?? 24;
     this.#caps = { ...defaultCaps(), ...options.caps };
+    // What the program sends is decoded with at most the limit the host
+    // reports as limits.message (SPEC §13), DEFAULT_MAX when the caps name
+    // none.
+    const message = this.#caps.limits?.message ?? 0;
+    this.#dec.max = message > 0 ? message : DEFAULT_MAX;
+    if (!(message > 0)) this.#caps.limits = { ...this.#caps.limits, message: DEFAULT_MAX };
     this.#text = options.text ?? false;
     this.#lenient = options.lenient ?? false;
     this.#kitty = options.kittyGraphics ?? false;
