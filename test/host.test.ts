@@ -121,6 +121,18 @@ describe("Host scroll and area", () => {
     assert.equal(old.caps.scroll, false);
   });
 
+  test("a double click is a click, then a click whose count is 2 (SPEC §9)", () => {
+    const h = new Host();
+    assert.equal(h.caps.count, true);
+    h.write(doc("f", `<button id=open value=x>Open</button><a href="/doc" id=l>doc</a>`) + place("f", { cols: 20, rows: 2 }));
+    h.doubleClick("f", "open");
+    h.doubleClick("f", "l");
+    assert.deepEqual(
+      h.events().filter((e) => e.kind === "click").map((e) => [e.target, e.count()]),
+      [["open", 1], ["open", 2], ["l", 1], ["l", 2]],
+    );
+  });
+
   test("the host reports the limit it decodes a message with, and drops a message past it (SPEC §13)", () => {
     assert.equal(new Host().caps.limits.message, DEFAULT_MAX);
     assert.equal(new Host({ caps: { limits: { surfaces: 2 } } }).caps.limits.message, DEFAULT_MAX);

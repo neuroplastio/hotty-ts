@@ -66,6 +66,7 @@ export function defaultCaps(): CapsBody {
     scheme: "dark",
     limits: { surfaces: 64, message: DEFAULT_MAX },
     scroll: true,
+    count: true,
     host: "hotty-ts-test",
   };
 }
@@ -771,6 +772,17 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#click(s, this.#element(s, id));
   }
 
+  /**
+   * Clicks the element with an id twice, as a double click does: click,
+   * then a click that says it is the second of its run (count 2, SPEC §9).
+   */
+  doubleClick(surface: string, id: string): void {
+    const s = this.#target(surface);
+    const el = this.#element(s, id);
+    this.#click(s, el);
+    this.#click(s, el, true, 2);
+  }
+
   /** Clicks the first link in a surface whose href is href, as written: for links with no id. */
   clickLink(surface: string, href: string): void {
     const s = this.#target(surface);
@@ -780,8 +792,10 @@ export class Host implements AsyncIterable<Uint8Array> {
   }
 
   // A click on el: by the pointer, which presses first, or by the keyboard
-  // (key), which does not.
-  #click(s: Surface, el: El, pointer = true) {
+  // (key), which does not. count is its place in its run of clicks, which
+  // its detail carries from 2 on (SPEC §9).
+  #click(s: Surface, el: El, pointer = true, count = 1) {
+    const n = count > 1 ? { count } : {};
     const a = closest(el, (n) => n.tagName === "a");
     if (a && attr(a, "href") !== undefined && hyperlink(a)) {
       const u = resolve(s, a);
@@ -800,13 +814,13 @@ export class Host implements AsyncIterable<Uint8Array> {
       // The href is the handle, and the id too when there is one.
       const u = resolve(s, rep);
       const id = attr(rep, "id") ?? "";
-      this.#event(s, "click", id, { href, ...(u ? { url: u } : {}), ...areaOf(s, id) });
+      this.#event(s, "click", id, { href, ...(u ? { url: u } : {}), ...areaOf(s, id), ...n });
       return;
     }
     const rid = attr(rep, "id");
     if (rid === undefined) throw new HostError("no-report", "nothing with an id reports this click");
     const v = attr(rep, "value");
-    const detail = { ...(v === undefined ? {} : { value: v }), ...areaOf(s, rid) };
+    const detail = { ...(v === undefined ? {} : { value: v }), ...areaOf(s, rid), ...n };
     this.#event(s, "click", rid, Object.keys(detail).length > 0 ? detail : undefined);
     if (submits(rep)) {
       const form = closest(rep, (n) => n.tagName === "form");

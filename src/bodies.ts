@@ -19,6 +19,7 @@ export const CAPS: Type = {
   passthrough: "bool",
   scroll: "bool",
   steps: "bool",
+  count: "bool",
   host: "str",
   version: "str",
 };
@@ -28,7 +29,7 @@ const DRAG: Type = { c: "int", r: "int", keys: ["str"], x: "int", y: "int" };
 
 /** Each kind's detail; a kind not here carries none a program reads. */
 export const DETAIL: ReadonlyMap<string, Type> = new Map([
-  ["click", { value: "str", href: "str", url: "str", area: AREA }],
+  ["click", { value: "str", href: "str", url: "str", area: AREA, count: "int" }],
   ["press", { area: AREA }],
   ["change", { checked: "bool", value: "str" }],
   ["input", { value: "str" }],

@@ -301,6 +301,18 @@ export class Event {
     return { c: a.c, r: a.r, w: a.w, h: a.h };
   }
 
+  /**
+   * A click's place in its run of clicks on its element, as the user's
+   * platform counts them (SPEC §9): 2 for the second click of a double
+   * click, 1 for a single click or the keyboard's. Absent for any other
+   * kind.
+   */
+  count(): number | undefined {
+    if (this.kind !== "click") return undefined;
+    const n = this.#d?.count;
+    return typeof n === "number" && n > 1 ? n : 1;
+  }
+
   /** A hover's cell, or out. The element is the event's target. */
   hover(): Hover | undefined {
     if (this.kind !== "hover") return undefined;
@@ -345,6 +357,7 @@ export interface CapsBody {
   passthrough?: boolean;
   scroll?: boolean;
   steps?: boolean;
+  count?: boolean;
   host?: string;
   version?: string;
   [field: string]: unknown;
@@ -378,6 +391,8 @@ export class Caps {
   readonly scroll: boolean;
   /** Whether a drag of an element with data-steps says where in it the pointer is (SPEC §9.1). */
   readonly steps: boolean;
+  /** Whether a repeated click says its place in its run of clicks (SPEC §9); a host that does not say counts none. */
+  readonly count: boolean;
   /** A name for the implementation, when it gives one. */
   readonly host: string | undefined;
   /** The implementation's version, with host. */
@@ -400,6 +415,7 @@ export class Caps {
     this.passthrough = body.passthrough === true;
     this.scroll = body.scroll === true;
     this.steps = body.steps === true;
+    this.count = body.count === true;
     this.host = body.host;
     this.version = body.version;
   }

@@ -33,6 +33,7 @@ const FEATURES = new Set([
   "caps.scroll",
   "decode.abort-count",
   "decode.max",
+  "event.count",
   "decode.unterminated",
   "scanner.da1",
   "graphemes",
@@ -238,6 +239,7 @@ function eventView(e: hotty.Event) {
     drag: drag ? { ...drag, x: nul(drag.x), y: nul(drag.y) } : null,
     hover: hover ? { c: nul(hover.c), r: nul(hover.r), out: hover.out } : null,
     area: nul(e.area()),
+    count: nul(e.count()),
     view: view ? { areas: view.areas, at_end: view.atEnd } : null,
   };
 }
@@ -255,6 +257,7 @@ function capsView(c: hotty.Caps, want: Any) {
     passthrough: c.passthrough,
     scroll: c.scroll,
     steps: c.steps,
+    count: c.count,
     host: nul(c.host),
     version: nul(c.version),
     drags: c.drags(),
