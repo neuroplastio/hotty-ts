@@ -19,13 +19,14 @@ export const CAPS: Type = {
   passthrough: "bool",
   scroll: "bool",
   steps: "bool",
+  drop: "bool",
   count: "bool",
   host: "str",
   version: "str",
 };
 
 const AREA: Type = { c: "int", r: "int", w: "int", h: "int" };
-const DRAG: Type = { c: "int", r: "int", keys: ["str"], x: "int", y: "int" };
+const DRAG: Type = { c: "int", r: "int", keys: ["str"], x: "int", y: "int", tx: "int", ty: "int" };
 
 /** Each kind's detail; a kind not here carries none a program reads. */
 export const DETAIL: ReadonlyMap<string, Type> = new Map([

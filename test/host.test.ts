@@ -562,3 +562,63 @@ describe("Host drags with steps", () => {
     assert.deepEqual(sent(h), ['ev dragstart t=track {"c":0,"r":0,"keys":[]}']);
   });
 });
+
+describe("Host drops", () => {
+  const doc_ =
+    "<i id=card data-on=drag>c</i><i id=ada data-on=drop>Ada</i><i id=col data-on=drop data-steps='3 2'>col</i>" +
+    "<i id=row data-on='drag click'><b id=pin data-on=drop>p</b></i><i id=knob data-on=drag data-steps=4>k</i>";
+
+  test("a host whose caps say drop takes a drop-only t, never drags it, reports where in a t with steps the pointer is, and a release on a drop-only element inside the one dragged is its click (SPEC §9.1)", () => {
+    const h = new Host({ caps: { drop: true } });
+    h.write(doc("s", doc_) + place("s", { cols: 10, rows: 6 }));
+    h.take();
+    h.dragStart("s", "card", 1, 0);
+    h.dragMove("ada", 1, 1); // a drop-only t
+    h.dragMove("col", 1, 2); // a t with steps, at step 0 of it
+    h.dragOver("col", 2, 2, 0, 0); // the same step: nothing
+    h.dragOver("col", 2, 3, 1, 1); // another step: drag
+    h.dragOver("col", 4, 4, 9, 2); // past the count: clamped
+    h.dragEndOver("col", 4, 4, 3, 2);
+    assert.deepEqual(sent(h), [
+      'ev dragstart t=card {"c":1,"r":0,"keys":[]}',
+      'ev drag t=ada {"c":1,"r":1,"keys":[]}',
+      'ev drag t=col {"c":1,"r":2,"keys":[],"tx":0,"ty":0}',
+      'ev drag t=col {"c":2,"r":3,"keys":[],"tx":1,"ty":1}',
+      'ev drag t=col {"c":4,"r":4,"keys":[],"tx":3,"ty":2}',
+      'ev dragend t=col {"c":4,"r":4,"keys":[],"tx":3,"ty":2}',
+    ]);
+    const steps = h.events().filter((e) => e.kind.startsWith("drag")).map((e) => [e.drag()?.tx, e.drag()?.ty]);
+    assert.deepEqual(steps.slice(1, 3), [[undefined, undefined], [0, 0]], "Event.drag() reads tx and ty");
+
+    assert.throws(() => h.dragStart("s", "ada", 1, 1), /no element with an id opts in/);
+    h.dragStart("s", "pin", 1, 5);
+    h.dragEnd("pin", 1, 5);
+    assert.deepEqual(sent(h), ['ev dragstart t=row {"c":1,"r":5,"keys":[]}', 'ev dragend t=pin {"c":1,"r":5,"keys":[]}', "ev click t=row"]);
+
+    // A t that only opts in to drags has no steps in it.
+    h.dragStart("s", "card", 1, 0);
+    h.dragOver("knob", 1, 6, 2, 0);
+    h.dragEndOver("knob", 1, 6, 3, 0);
+    assert.deepEqual(sent(h), [
+      'ev dragstart t=card {"c":1,"r":0,"keys":[]}',
+      'ev drag t=knob {"c":1,"r":6,"keys":[]}',
+      'ev dragend t=knob {"c":1,"r":6,"keys":[]}',
+    ]);
+  });
+
+  test("a host that does not say drop takes no drop-only t and no steps in t", () => {
+    const h = new Host({ caps: { steps: true } });
+    h.write(doc("s", doc_) + place("s", { cols: 10, rows: 6 }));
+    h.take();
+    h.dragStart("s", "card", 1, 0);
+    h.dragMove("ada", 1, 1);
+    h.dragOver("col", 1, 2, 1, 1);
+    h.dragEnd("col", 1, 2);
+    assert.deepEqual(sent(h), [
+      'ev dragstart t=card {"c":1,"r":0,"keys":[]}',
+      'ev drag t= {"c":1,"r":1,"keys":[]}',
+      'ev drag t= {"c":1,"r":2,"keys":[]}',
+      'ev dragend t= {"c":1,"r":2,"keys":[]}',
+    ]);
+  });
+});

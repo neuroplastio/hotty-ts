@@ -165,6 +165,13 @@ export interface Drag {
    */
   x?: number;
   y?: number;
+  /**
+   * Where in t the pointer is, for a t with drop in its data-on and
+   * data-steps (SPEC §9.1), in drag and dragend: measured as x and y are, against t's box. Absent along an
+   * axis t does not count.
+   */
+  tx?: number;
+  ty?: number;
 }
 
 /** Where a hover event says the pointer is (SPEC §9.4). */
@@ -281,11 +288,13 @@ export class Event {
   /** A dragstart's, drag's or dragend's cell and keys, and its steps. */
   drag(): Drag | undefined {
     if (this.kind !== "dragstart" && this.kind !== "drag" && this.kind !== "dragend") return undefined;
-    const { c, r, keys, x, y } = (this.#d ?? {}) as Partial<Drag>;
+    const { c, r, keys, x, y, tx, ty } = (this.#d ?? {}) as Partial<Drag>;
     if (c === undefined || r === undefined) return undefined;
     const drag: Drag = { c, r, keys: [...(keys ?? [])] };
     if (x !== undefined) drag.x = x;
     if (y !== undefined) drag.y = y;
+    if (tx !== undefined) drag.tx = tx;
+    if (ty !== undefined) drag.ty = ty;
     return drag;
   }
 
@@ -357,6 +366,7 @@ export interface CapsBody {
   passthrough?: boolean;
   scroll?: boolean;
   steps?: boolean;
+  drop?: boolean;
   count?: boolean;
   host?: string;
   version?: string;
@@ -391,6 +401,12 @@ export class Caps {
   readonly scroll: boolean;
   /** Whether a drag of an element with data-steps says where in it the pointer is (SPEC §9.1). */
   readonly steps: boolean;
+  /**
+   * Whether an element with drop in its data-on can be a drag's t without
+   * being dragged, and a drag says where in it the pointer is when it has
+   * data-steps (SPEC §9.1).
+   */
+  readonly drop: boolean;
   /** Whether a repeated click says its place in its run of clicks (SPEC §9); a host that does not say counts none. */
   readonly count: boolean;
   /** A name for the implementation, when it gives one. */
@@ -415,6 +431,7 @@ export class Caps {
     this.passthrough = body.passthrough === true;
     this.scroll = body.scroll === true;
     this.steps = body.steps === true;
+    this.drop = body.drop === true;
     this.count = body.count === true;
     this.host = body.host;
     this.version = body.version;

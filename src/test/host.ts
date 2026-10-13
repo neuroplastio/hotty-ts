@@ -114,6 +114,9 @@ interface Drag {
   n: [number, number]; // the element's data-steps when the drag began: none is 0
   x: number;
   y: number; // the step as last reported, along each counted axis
+  tn: [number, number]; // t's data-steps as last reported: none is 0
+  tx: number;
+  ty: number; // the step in t as last reported, along each counted axis
 }
 
 const utf8 = new TextEncoder();
@@ -1193,8 +1196,9 @@ export class Host implements AsyncIterable<Uint8Array> {
     const on = closest(el, listens("drag"));
     const rid = attr(on, "id");
     if (on && rid !== undefined) {
-      const d: Drag = { s, start: on, id: rid, t: rid, c, r, n: this.#caps.steps === true ? steps(on) : [0, 0], x: 0, y: 0 };
-      [d.x, d.y] = clampStep(d, x, y);
+      const n: [number, number] = this.#caps.steps === true ? steps(on) : [0, 0];
+      const d: Drag = { s, start: on, id: rid, t: rid, c, r, n, x: 0, y: 0, tn: [0, 0], tx: 0, ty: 0 };
+      [d.x, d.y] = clampSteps(d.n, x, y);
       this.#drag = d;
       this.#event(s, "dragstart", rid, dragDetail(d, c, r, keys));
     }
@@ -1206,14 +1210,15 @@ export class Host implements AsyncIterable<Uint8Array> {
 
   /**
    * Moves the pointer of the drag in progress onto the element with an id in
-   * its surface, or onto none (""), at the surface's cell c, r: drag when the
-   * element under the pointer changes, and while that is none, when the
-   * cell does.
+   * its surface, or onto none (""), at the surface's cell c, r: drag when t,
+   * the element under the pointer, changes, and while that is none, when the
+   * cell does. t is the nearest element with an id and drag in its data-on,
+   * or drop when the caps say drop. In a t with data-steps the pointer stays
+   * at the step it was at in t, or 0 in a new one (dragOver).
    */
   dragMove(id: string, c: number, r: number, keys: string[] = []): void {
-    const d = this.#drag;
-    if (!d) throw new HostError("no-drag", "no drag is in progress");
-    this.#dragMove(id, c, r, d.x, d.y, keys);
+    const d = this.#current();
+    this.#dragMove(id, c, r, d.x, d.y, d.tx, d.ty, keys);
   }
 
   /**
@@ -1221,39 +1226,65 @@ export class Host implements AsyncIterable<Uint8Array> {
    * wherever the pointer is (dragStartStep): drag also when the step changes.
    */
   dragMoveStep(id: string, c: number, r: number, x: number, y: number, keys: string[] = []): void {
-    this.#dragMove(id, c, r, x, y, keys);
+    const d = this.#current();
+    this.#dragMove(id, c, r, x, y, d.tx, d.ty, keys);
   }
 
-  #dragMove(id: string, c: number, r: number, x: number, y: number, keys: string[]): void {
-    const [d, t] = this.#dragOver(id);
-    [x, y] = clampStep(d, x, y);
-    if (t === d.t && (t !== "" || (c === d.c && r === d.r)) && x === d.x && y === d.y) return;
-    Object.assign(d, { t, c, r, x, y });
+  /**
+   * dragMove with the pointer at step tx, ty of t, for a t with drop in its
+   * data-on and data-steps (SPEC §9.1): a row with "0 1" is split in halves, a folder with "0 2"
+   * into before, into and after. The host lays nothing out, so the test says
+   * where in t the pointer is: a step past t's count is clamped to it, and
+   * one along an axis t does not count is ignored. drag also when that step
+   * changes. The host reports it only when its caps say drop.
+   */
+  dragOver(id: string, c: number, r: number, tx: number, ty: number, keys: string[] = []): void {
+    const d = this.#current();
+    this.#dragMove(id, c, r, d.x, d.y, tx, ty, keys);
+  }
+
+  #dragMove(id: string, c: number, r: number, x: number, y: number, tx: number, ty: number, keys: string[]): void {
+    const [d, t] = this.#over(id);
+    [x, y] = clampSteps(d.n, x, y);
+    const tn = this.#targetSteps(d, t);
+    [tx, ty] = clampSteps(tn, tx, ty);
+    if (t === d.t && (t !== "" || (c === d.c && r === d.r)) && x === d.x && y === d.y && tx === d.tx && ty === d.ty) return;
+    Object.assign(d, { t, c, r, x, y, tn, tx, ty });
     this.#event(d.s, "drag", t, dragDetail(d, c, r, keys));
   }
 
   /**
    * Releases the button of the drag in progress over the element with an id,
    * or none (""): dragend, and the click of the element it began on, if it
-   * ends there and reports clicks.
+   * ends there and reports clicks: the nearest element with an id and drag
+   * in its data-on, from the one named outward, is the one it began on,
+   * whatever t is.
    */
   dragEnd(id: string, c: number, r: number, keys: string[] = []): void {
-    const d = this.#drag;
-    if (!d) throw new HostError("no-drag", "no drag is in progress");
-    this.#dragEnd(id, c, r, d.x, d.y, keys);
+    const d = this.#current();
+    this.#dragEnd(id, c, r, d.x, d.y, d.tx, d.ty, keys);
   }
 
   /** dragEnd with the pointer at step x, y of the element the drag began on (dragStartStep). */
   dragEndStep(id: string, c: number, r: number, x: number, y: number, keys: string[] = []): void {
-    this.#dragEnd(id, c, r, x, y, keys);
+    const d = this.#current();
+    this.#dragEnd(id, c, r, x, y, d.tx, d.ty, keys);
   }
 
-  #dragEnd(id: string, c: number, r: number, x: number, y: number, keys: string[]): void {
-    const [d, t] = this.#dragOver(id);
-    [d.x, d.y] = clampStep(d, x, y);
+  /** dragEnd with the pointer at step tx, ty of t (dragOver). */
+  dragEndOver(id: string, c: number, r: number, tx: number, ty: number, keys: string[] = []): void {
+    const d = this.#current();
+    this.#dragEnd(id, c, r, d.x, d.y, tx, ty, keys);
+  }
+
+  #dragEnd(id: string, c: number, r: number, x: number, y: number, tx: number, ty: number, keys: string[]): void {
+    const [d, t, own] = this.#over(id);
+    [d.x, d.y] = clampSteps(d.n, x, y);
+    d.tn = this.#targetSteps(d, t);
+    [d.tx, d.ty] = clampSteps(d.tn, tx, ty);
     this.#drag = undefined;
     this.#event(d.s, "dragend", t, dragDetail(d, c, r, keys));
-    if (t === d.id && reportsClick(d.start)) {
+    if (own === d.id && reportsClick(d.start)) {
       const v = attr(d.start, "value");
       this.#event(d.s, "click", d.id, v === undefined ? undefined : { value: v });
     }
@@ -1264,21 +1295,39 @@ export class Host implements AsyncIterable<Uint8Array> {
     return this.#drag !== undefined;
   }
 
-  #dragOver(id: string): [Drag, string] {
+  #current(): Drag {
     const d = this.#drag;
     if (!d) throw new HostError("no-drag", "no drag is in progress");
-    if (id === "") return [d, ""];
-    const el = d.s.byId(id);
-    if (!el) throw new HostError("no-element", `no #${id} in ${d.s.name}`);
-    const on = closest(el, (n) => attr(n, "id") !== undefined && listens("drag")(n));
-    return [d, attr(on, "id") ?? ""];
+    return d;
   }
 
-  // Ends the drag in progress early (SPEC §9.1): dragend, with no target and
-  // the last cell the pointer was on.
+  // What is under the pointer of the drag in progress, from the element named
+  // outward: t, the nearest element with an id and drag in its data-on, or
+  // drop when the caps say drop; and own, the nearest with an id and drag,
+  // for whether the release is a click.
+  #over(id: string): [Drag, string, string] {
+    const d = this.#current();
+    if (id === "") return [d, "", ""];
+    const el = d.s.byId(id);
+    if (!el) throw new HostError("no-element", `no #${id} in ${d.s.name}`);
+    const withId = (on: (n: El) => boolean) => attr(closest(el, (n) => attr(n, "id") !== undefined && on(n)), "id") ?? "";
+    const own = withId(listens("drag"));
+    const t = this.#caps.drop === true ? withId((n) => listens("drag")(n) || listens("drop")(n)) : own;
+    return [d, t, own];
+  }
+
+  // t's data-steps, when t has drop in its data-on and the caps say drop.
+  #targetSteps(d: Drag, t: string): [number, number] {
+    const el = t === "" || this.#caps.drop !== true ? undefined : d.s.byId(t);
+    return el && listens("drop")(el) ? steps(el) : [0, 0];
+  }
+
+  // Ends the drag in progress early (SPEC §9.1): dragend, with no target, the
+  // last cell the pointer was on, and no step in t.
   #cutDrag() {
     const d = this.#drag!;
     this.#drag = undefined;
+    d.tn = [0, 0];
     this.#event(d.s, "dragend", "", dragDetail(d, d.c, d.r, []));
   }
 
@@ -1418,20 +1467,20 @@ function ctlString(m: Message): string {
   return [...m.control].map(([k, v]) => `${k}=${v}`).join(":");
 }
 
-// A drag event's detail: the cell, and the modifier keys in the order SPEC
-// §9.1 gives them.
 // A drag event's detail: the cell, the modifier keys in SPEC §9.1's order,
-// and the step along each axis the element counts.
+// and the step along each axis the element counts, and t.
 function dragDetail(d: Drag, c: number, r: number, keys: string[]) {
   const detail: Record<string, unknown> = { c, r, keys: ["shift", "ctrl", "alt", "meta"].filter((k) => keys.includes(k)) };
   if (d.n[0] > 0) detail.x = d.x;
   if (d.n[1] > 0) detail.y = d.y;
+  if (d.tn[0] > 0) detail.tx = d.tx;
+  if (d.tn[1] > 0) detail.ty = d.ty;
   return detail;
 }
 
-// A step kept within the element's counts, 0 along an axis it does not count.
-function clampStep(d: Drag, x: number, y: number): [number, number] {
-  return [Math.min(Math.max(x, 0), d.n[0]), Math.min(Math.max(y, 0), d.n[1])];
+// A step kept within counts n, 0 along an axis n does not count.
+function clampSteps(n: [number, number], x: number, y: number): [number, number] {
+  return [Math.min(Math.max(x, 0), n[0]), Math.min(Math.max(y, 0), n[1])];
 }
 
 // An element's data-steps (SPEC §9.1): "<x>" or "<x> <y>", whole numbers
