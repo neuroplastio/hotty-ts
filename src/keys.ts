@@ -46,6 +46,10 @@ export const ACTIONS = [
   "newline",
   "submit",
   "program",
+  "cut",
+  "paste",
+  "undo",
+  "redo",
   ...SCROLL_ACTIONS,
 ] as const;
 /** One of {@link ACTIONS}. */
@@ -573,6 +577,15 @@ export function resolve(multiline: boolean, ...values: string[]): Keymap {
     ["Meta+ArrowDown", "input-end"],
     ["Meta+Backspace", "delete-to-line-start"],
     ["Meta+a", "select-all"],
+    ["Control+x", "cut"],
+    ["Meta+x", "cut"],
+    ["Control+v", "paste"],
+    ["Meta+v", "paste"],
+    ["Control+z", "undo"],
+    ["Meta+z", "undo"],
+    ["Control+Z", "redo"],
+    ["Control+y", "redo"],
+    ["Meta+Z", "redo"],
     ["Enter", multiline ? "newline" : "submit"],
   ];
   for (const [k, a] of base) m.bind(k, a);

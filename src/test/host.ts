@@ -1078,6 +1078,16 @@ export class Host implements AsyncIterable<Uint8Array> {
       }
       return true;
     }
+    // No cut with nothing selected, nor in a password field: the key is the
+    // program's (SPEC §10.2). This host keeps no clipboard, so a cut only
+    // deletes, and a paste is the program's.
+    if (a === "cut") {
+      const [lo, hi] = f.selection();
+      if (lo === hi || f.password) return false;
+      if (f.do("delete-char-backward")) this.#typeInto(s, el, f.value);
+      return true;
+    }
+    if (a === "paste") return false;
     const changed = a === INSERT ? f.type(keyText(parseKey(key)!)) : keys.selects(key) ? f.extend(a) : f.do(a);
     if (changed) this.#typeInto(s, el, f.value);
     return true;
