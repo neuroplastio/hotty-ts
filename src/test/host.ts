@@ -1027,7 +1027,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     // Any other element's keymap gives keys to the program; its scroll
     // actions do nothing here, where nothing scrolls, and a nearer one takes
     // a key back from a farther program.
-    if (parseKeymap(keymaps(el).join(" ")).program(key)) return false;
+    if (parseKeymap({}, keymaps(el).join(" ")).program(key)) return false;
     if (!shiftOnly) return false;
     if (textInput(el)) {
       // A date or time input.
@@ -1067,7 +1067,7 @@ export class Host implements AsyncIterable<Uint8Array> {
       s.fields.set(el, f);
     }
     f.value = s.valueOf(el);
-    const keys = resolveKeymap(multi, ...(textField(el) ? keymaps(el) : []));
+    const keys = resolveKeymap({}, multi, ...(textField(el) ? keymaps(el) : []));
     const a = keys.lookup(key);
     if (a === undefined) return false;
     if (a === "submit") {

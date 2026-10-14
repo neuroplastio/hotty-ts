@@ -4,6 +4,7 @@
 import { NO_REPLY, type Op, type Quiet, REPLY_ALWAYS, REPLY_ON_ERROR, VERSION } from "./constants.ts";
 import { Control } from "./control.ts";
 import { encode } from "./encode.ts";
+import { pack } from "./msgpack.ts";
 
 /**
  * The reply a command asks for (SPEC §3.5). Every builder but
@@ -288,6 +289,50 @@ export function focus(surface: string, target = "", opts?: ReplyOptions): string
   let ctl = new Control([["a", "focus"], ["s", surface]]);
   if (target !== "") ctl = ctl.with("t", target);
   return command(ctl, undefined, NO_REPLY, opts);
+}
+
+/**
+ * Takes the edit commands named (SPEC §10.6): `select-all`, `copy`, `cut`,
+ * `paste`, `undo`, `redo`. Their keys, the host's edit shortcuts
+ * (the capabilities' `edit`), then reach the program as `command` events in place
+ * of their bytes. Each replaces the last; none takes nothing. It holds for
+ * the screen it is sent on.
+ */
+export function edit(names: readonly string[], opts?: ReplyOptions): string {
+  return command(new Control([["a", "edit"], ["take", names.join(",")]]), undefined, NO_REPLY, opts);
+}
+
+/** A key that can follow a menu's sequence (SPEC §10.6). */
+export interface MenuItem {
+  key: string;
+  label?: string;
+  group?: boolean;
+  /** Whether it does anything now; true when absent. */
+  enabled?: boolean;
+}
+
+/** A which-key level: the keys typed, their group's label, and the keys that can follow them (SPEC §10.6). */
+export interface MenuLevel {
+  seq: readonly string[];
+  label?: string;
+  items: readonly MenuItem[];
+}
+
+/**
+ * Shows the which-key menu of a program's key sequence while it waits, or
+ * with none hides it (SPEC §10.6): msgpack in myelin's names and order
+ * (SDK.md §3.4).
+ */
+export function menu(level?: MenuLevel, opts?: ReplyOptions): string {
+  if (level === undefined) return command(new Control([["a", "menu"]]), undefined, NO_REPLY, opts);
+  const items = level.items.map((i) => ({
+    key: i.key,
+    label: i.label ? i.label : undefined,
+    group: i.group ? true : undefined,
+    enabled: i.enabled !== false,
+  }));
+  const body = { seq: [...level.seq], label: level.label ? level.label : undefined, items };
+  return command(new Control([["a", "menu"]]), pack(body), NO_REPLY, opts);
 }
 
 /** Takes the keyboard back from a surface. Its focused control commits first, so a change may come before blur. */

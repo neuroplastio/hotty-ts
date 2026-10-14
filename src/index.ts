@@ -54,10 +54,13 @@ export {
   TERMINAL_KEYS,
   chars,
   decodeKeys,
+  defaultEdit,
   parseKey,
   parseKeymap,
+  platformOf,
   resolve,
   type Action,
   type Modifier,
+  type Platform,
   type ScrollAction,
 } from "./keys.ts";

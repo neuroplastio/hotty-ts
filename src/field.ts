@@ -3,7 +3,7 @@
  * edit them, for a program that draws its fields in cells (SDK.md §4.6):
  *
  * ```ts
- * const keys = resolve(false, TERMINAL_KEYS); // the keymap its surfaces get in data-keys
+ * const keys = resolve({}, false, TERMINAL_KEYS); // the keymap its surfaces get in data-keys
  * const f = new Field({ value: "foo bar" });
  * const a = keys.lookup(key);                   // "delete-word-backward" for Control+w
  * if (a === INSERT) f.type(key);

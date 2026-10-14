@@ -101,11 +101,11 @@ selects, as on a host, and the field's `selection()` is what to draw as
 selected:
 
 ```ts
-import { INSERT, TERMINAL_KEYS, decodeKeys, resolve } from "@neuroplastio/hotty";
+import { INSERT, TERMINAL_KEYS, decodeKeys, platformOf, resolve } from "@neuroplastio/hotty";
 import { Field } from "@neuroplastio/hotty/field";
 
 const html = `<form data-keys="${TERMINAL_KEYS}"><input id=name></form>`; // on a host
-const keys = resolve(false, TERMINAL_KEYS); // in cells
+const keys = resolve(platformOf(caps), false, TERMINAL_KEYS); // in cells, with the host's Mod
 const f = new Field();
 for (const key of decodeKeys(read)) {
   const a = key === undefined ? undefined : keys.lookup(key);

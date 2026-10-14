@@ -209,6 +209,19 @@ export interface View {
 }
 
 /** A clicked link (SPEC §9). */
+/**
+ * An edit command (SPEC §10.6): the program decides what it means, and with
+ * nothing to do takes it as its key, as a text field does.
+ */
+export interface Command {
+  /** `copy`, `cut`, `paste`, `undo`, `redo` or `select-all`. */
+  name: string;
+  /** The key that sent it, as SPEC §10.4 names it; empty from the terminal's menu. */
+  key: string;
+  /** A paste's text; absent when the clipboard holds none or the host cannot read it. */
+  text?: string;
+}
+
 export interface Link {
   /** The href, as the document has it. */
   href: string;
@@ -331,6 +344,22 @@ export class Event {
     return { c, r, out: false };
   }
 
+  /** A command's (SPEC §10.6); undefined for another kind or a detail with no name. */
+  command(): Command | undefined {
+    if (this.kind !== "command" || typeof this.#d?.name !== "string") return undefined;
+    const c: Command = { name: this.#d.name, key: (this.#d.key as string | undefined) ?? "" };
+    if (this.#d.text !== undefined) c.text = this.#d.text as string;
+    return c;
+  }
+
+  /**
+   * A caps event's capabilities that changed (SPEC §4): a Caps whose raw
+   * has only those fields, for {@link Caps.merge}.
+   */
+  changed(): Caps | undefined {
+    return this.kind === "caps" && this.#d ? new Caps(this.#d as CapsBody) : undefined;
+  }
+
   /**
    * A view's elements in view and whether the document shows its end. It
    * names every element in view, not what changed. An element whose area
@@ -368,6 +397,10 @@ export interface CapsBody {
   steps?: boolean;
   drop?: boolean;
   count?: boolean;
+  mod?: string;
+  edit?: Record<string, string[]>;
+  keys?: { leader?: string; timeout?: number };
+  menu?: boolean;
   host?: string;
   version?: string;
   [field: string]: unknown;
@@ -409,6 +442,14 @@ export class Caps {
   readonly drop: boolean;
   /** Whether a repeated click says its place in its run of clicks (SPEC §9); a host that does not say counts none. */
   readonly count: boolean;
+  /** The modifier Mod stands for in bindings, "Control" or "Meta" (SPEC §10.4). */
+  readonly mod: string | undefined;
+  /** The host's edit shortcuts, from each action to its keys (SPEC §10.2); a host that reports them takes edit commands. */
+  readonly edit: Record<string, string[]> | undefined;
+  /** The user's leader and how long a sequence waits, in milliseconds (SPEC §10.5); undefined when the host reads none. */
+  readonly keys: { leader?: string; timeout?: number } | undefined;
+  /** Whether the host shows a program's which-key menus (SPEC §10.6). */
+  readonly menu: boolean;
   /** A name for the implementation, when it gives one. */
   readonly host: string | undefined;
   /** The implementation's version, with host. */
@@ -433,6 +474,10 @@ export class Caps {
     this.steps = body.steps === true;
     this.drop = body.drop === true;
     this.count = body.count === true;
+    this.mod = body.mod;
+    this.edit = body.edit && Object.fromEntries(Object.entries(body.edit).map(([a, k]) => [a, [...k]]));
+    this.keys = body.keys && { ...body.keys };
+    this.menu = body.menu === true;
     this.host = body.host;
     this.version = body.version;
   }
@@ -468,6 +513,11 @@ export class Caps {
   /** Whether the host reports which elements are in view (SPEC §9.5); like drags, not when it lists no kinds. */
   views(): boolean {
     return this.events.includes("view");
+  }
+
+  /** These capabilities with the fields a caps event changed ({@link Event.changed}) in place of their own. */
+  merge(changed: Caps): Caps {
+    return new Caps({ ...this.raw, ...changed.raw });
   }
 
   /** Whether the terminal's colour scheme is light. */

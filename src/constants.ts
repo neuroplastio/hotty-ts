@@ -48,6 +48,8 @@ export const EVENT_KINDS = [
   "dragstart",
   "drag",
   "dragend",
+  "command",
+  "caps",
 ] as const;
 /** One of {@link EVENT_KINDS}. */
 export type EventKind = (typeof EVENT_KINDS)[number];

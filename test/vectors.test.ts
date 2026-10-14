@@ -160,6 +160,10 @@ function build(b: Any): string {
       return hotty.focus(a.surface, a.target ?? "", ro);
     case "blur":
       return hotty.blur(a.surface, ro);
+    case "edit":
+      return hotty.edit(a.names ?? [], ro);
+    case "menu":
+      return hotty.menu(a.menu, ro);
     case "sync":
       return hotty.sync(...a.commands.map(build));
   }
@@ -172,9 +176,18 @@ sections("build", (v) => {
     if (s.raw !== undefined) return { raw: s.raw };
     const f = dec.feed(s.osc!);
     assert.equal(f.result, "complete", "a command did not decode");
-    return { cmd: { control: controlObject(f.message!), payload: f.message!.text() } };
+    return { cmd: { control: controlObject(f.message!), payload: Buffer.from(f.message!.payload).toString("base64") } };
   });
-  const want = v.out.map((s: Any) => (s.cmd ? { cmd: { control: s.cmd.control, payload: s.cmd.payload ?? "" } } : s));
+  const want = v.out.map((s: Any) =>
+    s.cmd
+      ? {
+          cmd: {
+            control: s.cmd.control,
+            payload: s.cmd.payload_b64 ?? Buffer.from(utf8.encode(s.cmd.payload ?? "")).toString("base64"),
+          },
+        }
+      : s,
+  );
   assert.deepEqual(got, want);
 });
 
@@ -227,8 +240,9 @@ function eventView(e: hotty.Event) {
   const hover = e.hover();
   const drag = e.drag();
   const view = e.view();
+  const cmd = e.command();
   return {
-    surface: e.surface,
+    surface: e.surface || null,
     kind: e.kind,
     target: e.target,
     value: nul(e.value()),
@@ -242,6 +256,7 @@ function eventView(e: hotty.Event) {
     area: nul(e.area()),
     count: nul(e.count()),
     view: view ? { areas: view.areas, at_end: view.atEnd } : null,
+    command: cmd ? { name: cmd.name, key: cmd.key, text: cmd.text ?? "", has_text: cmd.text !== undefined } : null,
   };
 }
 
@@ -260,6 +275,10 @@ function capsView(c: hotty.Caps, want: Any) {
     steps: c.steps,
     drop: c.drop,
     count: c.count,
+    mod: nul(c.mod),
+    edit: nul(c.edit),
+    keys: c.keys ? { leader: nul(c.keys.leader), timeout: nul(c.keys.timeout) } : null,
+    menu: c.menu,
     host: nul(c.host),
     version: nul(c.version),
     drags: c.drags(),
@@ -311,6 +330,13 @@ sections("decode", (v) => {
       const e = m.event();
       assert.ok(e, "not an event");
       match(eventView(e), want.event, "event");
+      if (want.changed) {
+        const ch = e.changed();
+        assert.ok(ch, "no changed caps");
+        assert.deepEqual(Object.keys(ch.raw), want.changed.fields, "changed fields");
+        const { fields: _, ...w } = want.changed;
+        match(capsView(ch, w), w, "changed");
+      }
     }
     if ("caps" in want) {
       const c = m.reply()?.caps();
@@ -419,16 +445,16 @@ sections("keys", (v) => {
 sections("keymap", (v) => {
   if ("program" in v || "scroll" in v) {
     // An element's keymap outside a text field: no default keymap.
-    const m = hotty.parseKeymap(v.keys.join(" "));
+    const m = hotty.parseKeymap(v.platform ?? {}, v.keys.join(" "));
     for (const [key, want] of Object.entries(v.program ?? {})) assert.equal(m.program(key), want, key);
     for (const [key, want] of Object.entries(v.scroll ?? {})) assert.equal(nul(m.scroll(key)), want, key);
     return;
   }
   if (!("lookup" in v)) {
-    assert.equal(hotty.parseKeymap(v.parse ?? hotty.TERMINAL_KEYS).format(), v.format);
+    assert.equal(hotty.parseKeymap(v.platform ?? {}, v.parse ?? hotty.TERMINAL_KEYS).format(), v.format);
     return;
   }
-  const m = hotty.resolve(v.multiline, ...(v.terminal_keys ? [hotty.TERMINAL_KEYS] : []), ...v.keys);
+  const m = hotty.resolve(v.platform ?? {}, v.multiline, ...(v.terminal_keys ? [hotty.TERMINAL_KEYS] : []), ...v.keys);
   for (const [key, want] of Object.entries(v.lookup)) assert.equal(nul(m.lookup(key)), want, key);
   for (const [key, want] of Object.entries(v.selects ?? {})) assert.equal(m.selects(key), want, `selects ${key}`);
 });

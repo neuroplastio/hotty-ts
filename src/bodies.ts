@@ -21,6 +21,10 @@ export const CAPS: Type = {
   steps: "bool",
   drop: "bool",
   count: "bool",
+  mod: "str",
+  edit: { "*": ["str"] },
+  keys: { leader: "str", timeout: "int" },
+  menu: "bool",
   host: "str",
   version: "str",
 };
@@ -42,4 +46,6 @@ export const DETAIL: ReadonlyMap<string, Type> = new Map([
   ["dragend", DRAG],
   ["hover", { c: "int", r: "int", out: "bool" }],
   ["view", { in: { "*": AREA }, end: "bool" }],
+  ["command", { name: "str", key: "str", text: "str" }],
+  ["caps", CAPS],
 ]);

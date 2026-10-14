@@ -10,7 +10,7 @@ describe("Keymap.program", () => {
   test("a key bound to program, Shift with it, read from data-keys with no default keymap", () => {
     // The root gives the arrows and End to the program; the element takes
     // End back with an action, which counts for nothing outside a field.
-    const m = parseKeymap(["ArrowDown=program ArrowUp=program End=program j=program", "End=line-end"].join(" "));
+    const m = parseKeymap({}, ["ArrowDown=program ArrowUp=program End=program j=program", "End=line-end"].join(" "));
     const want: Record<string, boolean> = {
       ArrowDown: true,
       "Shift+ArrowDown": true,
@@ -30,11 +30,11 @@ describe("Keymap.program", () => {
   });
 
   test("a key with Shift bound to an action of its own is not looked up without Shift", () => {
-    assert.equal(parseKeymap("ArrowDown=program Shift+ArrowDown=line-next").program("Shift+ArrowDown"), false);
+    assert.equal(parseKeymap({}, "ArrowDown=program Shift+ArrowDown=line-next").program("Shift+ArrowDown"), false);
   });
 
   test("in a field's keymap, lookup says as much", () => {
-    const f = resolve(false, "ArrowLeft=program");
+    const f = resolve({}, false, "ArrowLeft=program");
     assert.equal(f.program("ArrowLeft"), true);
     assert.equal(f.lookup("ArrowLeft"), undefined);
     assert.equal(f.program("ArrowRight"), false);

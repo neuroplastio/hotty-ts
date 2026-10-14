@@ -3,8 +3,10 @@
 
 /** The modifier keys, in the order a key's name writes them (SPEC §10.4). */
 export const MODIFIERS = ["Control", "Alt", "Meta", "Shift"] as const;
-/** One of {@link MODIFIERS}. */
-export type Modifier = (typeof MODIFIERS)[number];
+/** One of {@link MODIFIERS}, or a binding's `Mod` (SPEC §10.4), which a keymap reads as its platform's. */
+export type Modifier = (typeof MODIFIERS)[number] | "Mod";
+// The modifiers in the order a name writes them: a binding's Mod first.
+const ORDER = ["Mod", ...MODIFIERS] as const;
 
 /** The scroll actions (SPEC §10.2, scrolling keys), which a text field's keymap leaves out. */
 export const SCROLL_ACTIONS = [
@@ -86,10 +88,10 @@ export const INSERT = "insert";
 
 /**
  * The SDK's keymap (SDK.md §3.10), as a `data-keys` value: the keys of
- * Bubble Tea's text input and text area, but Control+a selects all, as in a
- * GUI field (Home still goes to the line's start). A program puts it on an
- * element that holds its fields, and edits its fields in cells with
- * `resolve(multiline, TERMINAL_KEYS)`.
+ * Bubble Tea's text input and text area, but Mod+a selects all, as in a
+ * GUI field: Control+a on Linux, while on macOS Control+a stays the line's
+ * start. A program puts it on an element that holds its fields, and edits
+ * its fields in cells with `resolve(platform, multiline, TERMINAL_KEYS)`.
  */
 export const TERMINAL_KEYS = [
   "ArrowLeft=char-backward Control+b=char-backward ArrowRight=char-forward Control+f=char-forward",
@@ -104,7 +106,7 @@ export const TERMINAL_KEYS = [
   "ArrowUp=line-previous Control+p=line-previous ArrowDown=line-next Control+n=line-next",
   "PageUp=page-up PageDown=page-down",
   "Alt+<=input-start Control+Home=input-start Alt+>=input-end Control+End=input-end",
-  "Control+a=select-all",
+  "Mod+a=select-all",
   "Control+m=newline",
 ].join(" ");
 
@@ -125,7 +127,7 @@ function isChar(v: string): boolean {
 }
 
 const NAMED = /^[A-Z][A-Za-z0-9]+$/;
-const isModifier = (m: string): m is Modifier => (MODIFIERS as readonly string[]).includes(m);
+const isModifier = (m: string): m is Modifier => (ORDER as readonly string[]).includes(m);
 
 // A key's name as its modifiers and its value, or undefined when it does
 // not parse.
@@ -163,7 +165,7 @@ function keyName(mods: readonly Modifier[], value: string): string {
       m = new Set([...m].filter((x) => x !== "Shift"));
     }
   }
-  return [...MODIFIERS.filter((x) => m.has(x)), value === " " ? "Space" : value].join("+");
+  return [...ORDER.filter((x) => m.has(x)), value === " " ? "Space" : value].join("+");
 }
 
 /**
@@ -419,23 +421,38 @@ const UNBINDABLE = new Set(["Tab", "Shift+Tab", "Escape"]);
  */
 export class Keymap {
   readonly #bindings = new Map<string, Action>();
+  readonly #written = new Map<string, string>();
   /** Whether the field is multi-line: the actions only it has are the field's. */
   readonly multiline: boolean;
+  /** What Mod reads as: "Control" or "Meta". */
+  readonly mod: "Control" | "Meta";
 
-  constructor(multiline = false) {
+  constructor(multiline = false, platform: Platform = {}) {
     this.multiline = multiline;
+    this.mod = platform.mod === "Meta" ? "Meta" : "Control";
   }
 
   /**
    * Binds a key to an action, as a host reads a binding: false, and
    * nothing bound, when the key does not parse, the action is unknown, or
-   * the key is Tab, Shift+Tab or Escape. A key bound again keeps its place.
+   * the key is Tab, Shift+Tab or Escape. Mod reads as the keymap's. A key
+   * bound again keeps its place, and is written as its last binding wrote
+   * it.
    */
   bind(key: string, action: string): boolean {
-    const k = parseKey(key);
-    if (k === undefined || !isAction(action) || UNBINDABLE.has(k)) return false;
+    const w = parseKey(key);
+    if (w === undefined || !isAction(action)) return false;
+    const k = this.#read(w);
+    if (UNBINDABLE.has(k)) return false;
     this.#bindings.set(k, action);
+    this.#written.set(k, w);
     return true;
+  }
+
+  // A canonical key with Mod read as the keymap's.
+  #read(k: string): string {
+    const [mods, value] = splitKey(k)!;
+    return mods.includes("Mod") ? keyName(mods.map((m) => (m === "Mod" ? this.mod : m)), value) : k;
   }
 
   /** The bindings, in the order their keys were first bound. */
@@ -445,7 +462,7 @@ export class Keymap {
 
   /** The keymap as a `data-keys` value: `key=action`, separated by a space. */
   format(): string {
-    return [...this.#bindings].map(([k, a]) => `${k}=${a}`).join(" ");
+    return [...this.#bindings].map(([k, a]) => `${this.#written.get(k)}=${a}`).join(" ");
   }
 
   /**
@@ -469,8 +486,9 @@ export class Keymap {
    * The field then does the move with `Field.extend`.
    */
   selects(key: string): boolean {
-    const k = parseKey(key);
-    if (k === undefined) return false;
+    const p = parseKey(key);
+    if (p === undefined) return false;
+    const k = this.#read(p);
     const a = this.lookup(k);
     return a !== undefined && a !== INSERT && MOVES.has(a) && splitKey(k)![0].includes("Shift");
   }
@@ -509,8 +527,9 @@ export class Keymap {
   // parts: a key with Shift that no binding names is looked up without
   // Shift. Undefined when the key does not parse.
   #bound(key: string): { key: string; mods: Modifier[]; value: string; action: Action | undefined } | undefined {
-    const k = parseKey(key);
-    if (k === undefined) return undefined;
+    const p = parseKey(key);
+    if (p === undefined) return undefined;
+    const k = this.#read(p);
     const [mods, value] = splitKey(k)!;
     let action = this.#bindings.get(k);
     if (action === undefined && mods.includes("Shift")) {
@@ -535,63 +554,103 @@ function* bindingsOf(value: string): Generator<[string, string]> {
   }
 }
 
-/** A `data-keys` value's bindings, without those a host ignores (SPEC §10.2). */
-export function parseKeymap(value: string): Keymap {
-  const m = new Keymap();
+/** A `data-keys` value's bindings, without those a host ignores (SPEC §10.2), Mod read as the platform's. */
+export function parseKeymap(platform: Platform, value: string): Keymap {
+  const m = new Keymap(false, platform);
   for (const [k, a] of bindingsOf(value)) m.bind(k, a);
   return m;
 }
 
 /**
- * A field's keymap: SPEC §10.2's default for an `input`, or for a
- * multi-line field, then each `data-keys` value in turn, the root's first.
- * A binding to a scroll action is left out where it stands, in its own
- * value too: it neither acts nor overrides an earlier binding of its key.
+ * How a host reads bindings (SDK.md §3.10): the modifier `Mod` stands for,
+ * "Control" (the default) or "Meta" (SPEC §10.4), and its edit shortcuts,
+ * from each action to its keys (SPEC §10.2), {@link defaultEdit} when
+ * absent.
  */
-export function resolve(multiline: boolean, ...values: string[]): Keymap {
-  const m = new Keymap(multiline);
-  const base: [string, Action][] = [
-    ["ArrowLeft", "char-backward"],
-    ["ArrowRight", "char-forward"],
-    ["Control+ArrowLeft", "word-backward"],
-    ["Control+ArrowRight", "word-forward"],
-    ["Alt+ArrowLeft", "word-backward"],
-    ["Alt+ArrowRight", "word-forward"],
-    ["Home", "line-start"],
-    ["End", "line-end"],
-    ["Control+Home", "input-start"],
-    ["Control+End", "input-end"],
-    ["Backspace", "delete-char-backward"],
-    ["Delete", "delete-char-forward"],
-    ["Control+Backspace", "delete-word-backward"],
-    ["Control+Delete", "delete-word-forward"],
-    ["Alt+Backspace", "delete-word-backward"],
-    ["Alt+Delete", "delete-word-forward"],
-    ["ArrowUp", "line-previous"],
-    ["ArrowDown", "line-next"],
-    ["PageUp", "page-up"],
-    ["PageDown", "page-down"],
-    ["Control+a", "select-all"],
-    ["Meta+ArrowLeft", "line-start"],
-    ["Meta+ArrowRight", "line-end"],
-    ["Meta+ArrowUp", "input-start"],
-    ["Meta+ArrowDown", "input-end"],
-    ["Meta+Backspace", "delete-to-line-start"],
-    ["Meta+a", "select-all"],
-    ["Control+c", "copy"],
-    ["Meta+c", "copy"],
-    ["Control+x", "cut"],
-    ["Meta+x", "cut"],
-    ["Control+v", "paste"],
-    ["Meta+v", "paste"],
-    ["Control+z", "undo"],
-    ["Meta+z", "undo"],
-    ["Control+Z", "redo"],
-    ["Control+y", "redo"],
-    ["Meta+Z", "redo"],
-    ["Enter", multiline ? "newline" : "submit"],
-  ];
-  for (const [k, a] of base) m.bind(k, a);
+export interface Platform {
+  mod?: string;
+  edit?: Readonly<Record<string, readonly string[]>>;
+}
+
+/** The Platform of a host's capabilities: its mod and edit, the defaults where it reports none. */
+export function platformOf(caps: { mod?: string; edit?: Record<string, string[]> }): Platform {
+  return { mod: caps.mod, edit: caps.edit };
+}
+
+// The edit actions, in SPEC §10.2's order.
+const EDIT_ACTIONS: readonly Action[] = ["select-all", "copy", "cut", "paste", "undo", "redo"];
+
+/** The default edit shortcuts for a Mod (SPEC §10.2), the keys canonical with Mod read. */
+export function defaultEdit(mod = "Control"): Record<string, string[]> {
+  const m = mod === "Meta" ? "Meta" : "Control";
+  const e: Record<string, string[]> = {
+    "select-all": [`${m}+a`],
+    copy: [`${m}+c`],
+    cut: [`${m}+x`],
+    paste: [`${m}+v`],
+    undo: [`${m}+z`],
+    redo: [`${m}+Z`],
+  };
+  if (m === "Control") e.redo!.push("Control+y");
+  return e;
+}
+
+// The default keymap (SPEC §10.2): every host's keys, then those of its Mod.
+const DEFAULT_KEYS: readonly [string, Action][] = [
+  ["ArrowLeft", "char-backward"],
+  ["ArrowRight", "char-forward"],
+  ["Alt+ArrowLeft", "word-backward"],
+  ["Alt+ArrowRight", "word-forward"],
+  ["Home", "line-start"],
+  ["End", "line-end"],
+  ["Backspace", "delete-char-backward"],
+  ["Delete", "delete-char-forward"],
+  ["Alt+Backspace", "delete-word-backward"],
+  ["Alt+Delete", "delete-word-forward"],
+  ["ArrowUp", "line-previous"],
+  ["ArrowDown", "line-next"],
+  ["PageUp", "page-up"],
+  ["PageDown", "page-down"],
+];
+const CONTROL_KEYS: readonly [string, Action][] = [
+  ["Control+ArrowLeft", "word-backward"],
+  ["Control+ArrowRight", "word-forward"],
+  ["Control+Home", "input-start"],
+  ["Control+End", "input-end"],
+  ["Control+Backspace", "delete-word-backward"],
+  ["Control+Delete", "delete-word-forward"],
+];
+const META_KEYS: readonly [string, Action][] = [
+  ["Meta+ArrowLeft", "line-start"],
+  ["Meta+ArrowRight", "line-end"],
+  ["Meta+ArrowUp", "input-start"],
+  ["Meta+ArrowDown", "input-end"],
+  ["Meta+Backspace", "delete-to-line-start"],
+  ["Control+a", "line-start"],
+  ["Control+e", "line-end"],
+  ["Control+b", "char-backward"],
+  ["Control+f", "char-forward"],
+  ["Control+p", "line-previous"],
+  ["Control+n", "line-next"],
+  ["Control+h", "delete-char-backward"],
+  ["Control+d", "delete-char-forward"],
+  ["Control+k", "delete-to-line-end"],
+];
+
+/**
+ * A field's keymap: SPEC §10.2's default for the platform's Mod, with its
+ * edit shortcuts, for an `input` or for a multi-line field, then each
+ * `data-keys` value in turn, the root's first. A binding to a scroll action
+ * is left out where it stands, in its own value too: it neither acts nor
+ * overrides an earlier binding of its key.
+ */
+export function resolve(platform: Platform, multiline: boolean, ...values: string[]): Keymap {
+  const m = new Keymap(multiline, platform);
+  for (const [k, a] of DEFAULT_KEYS) m.bind(k, a);
+  m.bind("Enter", multiline ? "newline" : "submit");
+  for (const [k, a] of platform.mod === "Meta" ? META_KEYS : CONTROL_KEYS) m.bind(k, a);
+  const edit = platform.edit ?? defaultEdit(platform.mod);
+  for (const a of EDIT_ACTIONS) for (const k of edit[a] ?? []) m.bind(k, a);
   for (const v of values) for (const [k, a] of bindingsOf(v)) if (!isScroll(a)) m.bind(k, a);
   return m;
 }

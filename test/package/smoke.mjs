@@ -20,7 +20,7 @@ assert.equal(VERSION, "0.2");
 assert.deepEqual(unpack(new Uint8Array([0x82, 0xa1, 0x77, 0xca, 0x43, 0xa0, 0x40, 0x00, 0xa1, 0x72, 0x07]), { floats: true }), { w: new Float(320.5), r: 7 });
 
 // A field in cells, edited with the keymap its surfaces get.
-const keys = resolve(false, TERMINAL_KEYS);
+const keys = resolve({}, false, TERMINAL_KEYS);
 const field = new Field({ value: "foo bar" });
 assert.equal(field.do(keys.lookup(decodeKeys("\x17")[0])), true);
 assert.equal(field.value, "foo ");
