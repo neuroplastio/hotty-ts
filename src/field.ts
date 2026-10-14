@@ -97,8 +97,8 @@ export class Field {
    * from its start when it goes back or up, and from its end otherwise, and
    * ends it, `char-backward` and `char-forward` stopping there; `select-all`
    * selects the whole value. `submit` and `program` are the program's, and
-   * so are `cut`, `paste`, `undo` and `redo` (a Field keeps no clipboard
-   * and no history); they and an action the field does not have (a
+   * so are `copy`, `cut`, `paste`, `undo` and `redo` (a Field keeps no
+   * clipboard and no history); they and an action the field does not have (a
    * multi-line one in an input, a scroll action) do nothing.
    */
   do(action: Action | string): boolean {
