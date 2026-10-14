@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 
-import { parseKeymap, resolve } from "../src/index.ts";
+import { Caps, parseKeymap, resolve } from "../src/index.ts";
 import { describe, test } from "./harness.ts";
 
 describe("Keymap.program", () => {
@@ -38,5 +38,16 @@ describe("Keymap.program", () => {
     assert.equal(f.program("ArrowLeft"), true);
     assert.equal(f.lookup("ArrowLeft"), undefined);
     assert.equal(f.program("ArrowRight"), false);
+  });
+});
+
+describe("Caps.merge", () => {
+  test("a field a caps event empties became absent, and merge drops it (SPEC §9)", () => {
+    const c = new Caps({ mod: "Control", edit: { copy: ["Control+c"] }, keys: { leader: "Space", timeout: 2000 } });
+    const m = c.merge(new Caps({ edit: {}, keys: {} }));
+    assert.deepEqual(Object.keys(m.raw), ["mod"]);
+    assert.equal(m.mod, "Control");
+    assert.equal(m.keys, undefined);
+    assert.equal(c.merge(new Caps({ mod: "Meta" })).raw.edit !== undefined, true);
   });
 });

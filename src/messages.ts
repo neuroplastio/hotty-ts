@@ -411,6 +411,13 @@ export interface CapsBody {
  * body whose fields have their types ({@link Reply.caps}). A field the SDK
  * does not know is in raw.
  */
+/** An empty map, as a caps event sends a field that became absent (SPEC §9). */
+const isEmptyMap = (v: unknown): boolean => {
+  if (typeof v !== "object" || v === null) return false;
+  const proto = Object.getPrototypeOf(v);
+  return (proto === Object.prototype || proto === null) && Object.keys(v).length === 0;
+};
+
 export class Caps {
   /** The protocol version the host answers in (SPEC §4): "0.2", for a host this SDK uses. */
   readonly v: string | undefined;
@@ -515,9 +522,12 @@ export class Caps {
     return this.events.includes("view");
   }
 
-  /** These capabilities with the fields a caps event changed ({@link Event.changed}) in place of their own. */
+  /** These capabilities with the fields a caps event changed ({@link Event.changed}) in place of their own,
+   * and without those it empties: a field that became absent comes as `{}` (SPEC §9). */
   merge(changed: Caps): Caps {
-    return new Caps({ ...this.raw, ...changed.raw });
+    const raw: Record<string, unknown> = { ...this.raw, ...changed.raw };
+    for (const [k, v] of Object.entries(changed.raw)) if (isEmptyMap(v)) delete raw[k];
+    return new Caps(raw as CapsBody);
   }
 
   /** Whether the terminal's colour scheme is light. */
