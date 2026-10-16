@@ -24,7 +24,7 @@ export const SCROLL_ACTIONS = [
 /** One of {@link SCROLL_ACTIONS}. */
 export type ScrollAction = (typeof SCROLL_ACTIONS)[number];
 
-/** The actions a keymap binds (SPEC §10.2): a text field's, `program`, and the scroll actions. */
+/** The actions a keymap binds (SPEC §10.2): a text field's, `program`, `prefix`, and the scroll actions. */
 export const ACTIONS = [
   "char-backward",
   "char-forward",
@@ -48,6 +48,7 @@ export const ACTIONS = [
   "newline",
   "submit",
   "program",
+  "prefix",
   "copy",
   "cut",
   "paste",
@@ -474,7 +475,7 @@ export class Keymap {
     const b = this.#bound(key);
     if (b === undefined || UNBINDABLE.has(b.key)) return undefined;
     const { mods, value, action: a } = b;
-    if (a !== undefined) return a === "program" || isScroll(a) || (MULTILINE_ACTIONS.has(a) && !this.multiline) ? undefined : a;
+    if (a !== undefined) return a === "program" || a === "prefix" || isScroll(a) || (MULTILINE_ACTIONS.has(a) && !this.multiline) ? undefined : a;
     if (isChar(value) && !mods.some((m) => m !== "Shift")) return INSERT;
     return undefined;
   }
@@ -494,21 +495,34 @@ export class Keymap {
   }
 
   /**
-   * Whether the keymap gives a key to the program: binds it to `program`,
-   * or, for a key with Shift that no binding names, binds it without Shift
-   * (SPEC §10.2, keys for the program).
+   * Whether the keymap gives a key to the program: binds it to `program`
+   * or `prefix`, or, for a key with Shift that no binding names, binds it
+   * without Shift (SPEC §10.2, keys for the program).
    *
    * Every focused element has a keymap, and outside a text field it gives
    * only `program` and the scroll actions. A host reads the element's as a
    * field's, from the `data-keys` values of the elements from the root down
    * to it, but with no default keymap and with its scroll actions:
    * `parseKeymap(values.join(" "))`. It gives a key the keymap binds to
-   * `program` to the program before the element uses it, and before the
-   * surface scrolls with it; a nearer binding of the key to another action
-   * takes it back. In a field, {@link lookup} says as much.
+   * `program` or `prefix` to the program before the element uses it, and
+   * before the surface scrolls with it; a nearer binding of the key to
+   * another action takes it back. In a field, {@link lookup} says as much.
    */
   program(key: string): boolean {
-    return this.#bound(key)?.action === "program";
+    const a = this.#bound(key)?.action;
+    return a === "program" || a === "prefix";
+  }
+
+  /**
+   * Whether the keymap binds a key to `prefix`, with the same fallback
+   * without Shift as {@link program}. A host asks it of a key `program`
+   * gives the program, and from then on gives the program every key, Tab,
+   * Shift+Tab and Escape too, until the program sends `a=focus` or
+   * `a=blur`, the surface loses the keyboard, or the user focuses an
+   * element of it with a press (SPEC §10.5).
+   */
+  prefix(key: string): boolean {
+    return this.#bound(key)?.action === "prefix";
   }
 
   /**
@@ -575,6 +589,21 @@ export interface Platform {
 /** The Platform of a host's capabilities: its mod and edit, the defaults where it reports none. */
 export function platformOf(caps: { mod?: string; edit?: Record<string, string[]> }): Platform {
   return { mod: caps.mod, edit: caps.edit };
+}
+
+/**
+ * A key's name as the platform reads it (SPEC §10.4): its canonical name
+ * ({@link parseKey}) with `Mod` read as the platform's, so that where Mod
+ * is Control `Mod+a` and `Control+a` read alike, and where it is Meta they
+ * are two keys. A menu's keys compare with the keys typed this way
+ * ({@link menuLevelOf}). Undefined for a name that does not parse.
+ */
+export function readKey(platform: Platform, name: string): string | undefined {
+  const canon = parseKey(name);
+  if (canon === undefined) return undefined;
+  const [mods, value] = splitKey(canon)!;
+  const mod = platform.mod === "Meta" ? "Meta" : "Control";
+  return mods.includes("Mod") ? keyName(mods.map((m) => (m === "Mod" ? mod : m)), value) : canon;
 }
 
 // The edit actions, in SPEC §10.2's order.

@@ -9,37 +9,28 @@ export const ERROR: Type = { code: "str", detail: "str" };
 
 export const CAPS: Type = {
   v: "str",
-  ops: ["str"],
-  events: ["str"],
-  cell: { w: "int", h: "int" },
+  cellcss: { w: "float", h: "float" },
   scale: "float",
   scheme: "str",
+  mod: "str",
+  features: ["str"],
   limits: { "*": "int" },
   net: { "*": ["str"] },
-  passthrough: "bool",
-  scroll: "bool",
-  steps: "bool",
-  drop: "bool",
-  count: "bool",
-  mod: "str",
   edit: { "*": ["str"] },
-  keys: { leader: "str", timeout: "int" },
-  menu: "bool",
   host: "str",
   version: "str",
 };
 
 const AREA: Type = { c: "int", r: "int", w: "int", h: "int" };
-const DRAG: Type = { c: "int", r: "int", keys: ["str"], x: "int", y: "int", tx: "int", ty: "int" };
+const DRAG: Type = { c: "int", r: "int", mods: "int", x: "int", y: "int", tx: "int", ty: "int" };
 
 /** Each kind's detail; a kind not here carries none a program reads. */
 export const DETAIL: ReadonlyMap<string, Type> = new Map([
-  ["click", { value: "str", href: "str", url: "str", area: AREA, count: "int" }],
-  ["press", { area: AREA }],
+  ["click", { value: "str", href: "str", url: "str", area: AREA, mods: "int", count: "int" }],
+  ["press", { area: AREA, mods: "int" }],
   ["change", { checked: "bool", value: "str" }],
   ["input", { value: "str" }],
-  ["submit", { "*": "str" }],
-  ["resize", { w: "float", h: "float" }],
+  ["submit", { fields: [["str"]] }],
   ["fit", { r: "int" }],
   ["dragstart", DRAG],
   ["drag", DRAG],

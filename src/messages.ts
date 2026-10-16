@@ -4,7 +4,7 @@
 // and the message stands.
 
 import { CAPS, DETAIL, ERROR } from "./bodies.ts";
-import type { ErrorCode, EventKind, Op } from "./constants.ts";
+import type { ErrorCode, EventKind, Feature } from "./constants.ts";
 import { readBody, unpack } from "./msgpack.ts";
 
 const decoder = new TextDecoder();
@@ -82,8 +82,10 @@ export class HottyError extends Error {
   /** The action answered. */
   readonly re: string | undefined;
   readonly surface: string | undefined;
+  /** The index of the op at fault, from 0, in an error answering a delta (SPEC §6.1). */
+  readonly op: number | undefined;
 
-  constructor(code: string, detail?: string, re?: string, surface?: string) {
+  constructor(code: string, detail?: string, re?: string, surface?: string, op?: number) {
     let msg = "hotty: " + (re ?? "?");
     if (surface) msg += " " + surface;
     msg += ": " + (code || "error");
@@ -94,6 +96,7 @@ export class HottyError extends Error {
     this.detail = detail;
     this.re = re;
     this.surface = surface;
+    this.op = op;
   }
 }
 
@@ -110,6 +113,11 @@ export class Reply {
   /** A placement's size, in a reply to place: with auto rows, the rows the host chose. */
   readonly cols: number | undefined;
   readonly rows: number | undefined;
+  /**
+   * The index of the op at fault, from 0, in an error answering a delta
+   * (the control key `i`, SPEC §6.1); absent otherwise.
+   */
+  readonly op: number | undefined;
   /** What went wrong, when not ok: absent when the body has none, or does not decode. */
   readonly code: ErrorCode | (string & {}) | undefined;
   readonly detail: string | undefined;
@@ -124,6 +132,8 @@ export class Reply {
     this.surface = m.get("s");
     this.cols = int(m.get("c"));
     this.rows = int(m.get("r"));
+    const i = int(m.get("i"));
+    this.op = i !== undefined && i >= 0 ? i : undefined;
     if (!this.ok) {
       const body = readBody(m.payload, ERROR);
       this.code = body?.code as string | undefined;
@@ -145,17 +155,15 @@ export class Reply {
 
   /** The reply as an error, or undefined when ok. */
   err(): HottyError | undefined {
-    return this.ok ? undefined : new HottyError(this.code ?? "", this.detail, this.re, this.surface);
+    return this.ok ? undefined : new HottyError(this.code ?? "", this.detail, this.re, this.surface, this.op);
   }
 }
 
-/** Where a drag's pointer is, and the modifier keys held (SPEC §9.1). */
+/** Where a drag's pointer is (SPEC §9.1); the modifier keys held are the event's {@link Event.mods}. */
 export interface Drag {
   /** The surface's column and row under the pointer, from 0 at its top left (not its window's); they go on past its edges. */
   c: number;
   r: number;
-  /** The modifier keys held: "shift", "ctrl", "alt" and "meta", in that order. */
-  keys: string[];
   /**
    * Where in the dragged element the pointer is, for an element with
    * data-steps (SPEC §9.1): a step from 0 to its count, along its width (x)
@@ -238,7 +246,7 @@ export class Event {
   readonly surface: string;
   /** One of {@link EventKind}, or a kind this SDK does not know, as it came. */
   readonly kind: EventKind | (string & {});
-  /** The id of the element that reported; empty when there is none. */
+  /** The id of the element that reported; empty where the host sends no `t` (SPEC §9). */
   readonly target: string;
   /** The event as it came. */
   readonly message: Message;
@@ -273,9 +281,27 @@ export class Event {
     return this.kind === "change" ? (this.#d?.checked as boolean | undefined) : undefined;
   }
 
-  /** A submit's fields, by name. */
-  fields(): Record<string, string> | undefined {
-    return this.kind === "submit" && this.#d ? ({ ...this.#d } as Record<string, string>) : undefined;
+  /**
+   * A submit's fields in tree order, each a name and a value: two fields of
+   * one name are two pairs (SPEC §9). A detail whose pair is not two strs
+   * does not decode.
+   */
+  fields(): [name: string, value: string][] | undefined {
+    if (this.kind !== "submit" || !this.#d) return undefined;
+    const given = this.#d.fields as string[][] | undefined;
+    if (given === undefined || given.some((p) => p.length !== 2)) return undefined;
+    return given.map((p) => [p[0]!, p[1]!]);
+  }
+
+  /**
+   * The modifier keys held, as bits (MOD_SHIFT, MOD_ALT, MOD_CONTROL,
+   * MOD_META): in a click, a press and a drag's events (SPEC §9). 0 when
+   * none is held, and for any other kind.
+   */
+  mods(): number {
+    const k = this.kind;
+    const m = k === "click" || k === "press" || k === "dragstart" || k === "drag" || k === "dragend" ? this.#d?.mods : undefined;
+    return typeof m === "number" ? m : 0;
   }
 
   /** A clicked link: its href, and its url when there is one. */
@@ -286,24 +312,18 @@ export class Event {
     return url !== undefined ? { href, url } : { href };
   }
 
-  /** A resize's new size, in CSS pixels. */
-  size(): { w: number; h: number } | undefined {
-    const { w, h } = (this.#d ?? {}) as { w?: number; h?: number };
-    return this.kind === "resize" && w !== undefined && h !== undefined ? { w, h } : undefined;
-  }
-
   /** The rows a fit event says the document needs now. */
   fitRows(): number | undefined {
     const r = this.#d?.r as number | undefined;
     return this.kind === "fit" && r !== undefined && r >= 1 ? r : undefined;
   }
 
-  /** A dragstart's, drag's or dragend's cell and keys, and its steps. */
+  /** A dragstart's, drag's or dragend's cell, and its steps. */
   drag(): Drag | undefined {
     if (this.kind !== "dragstart" && this.kind !== "drag" && this.kind !== "dragend") return undefined;
-    const { c, r, keys, x, y, tx, ty } = (this.#d ?? {}) as Partial<Drag>;
+    const { c, r, x, y, tx, ty } = (this.#d ?? {}) as Partial<Drag>;
     if (c === undefined || r === undefined) return undefined;
-    const drag: Drag = { c, r, keys: [...(keys ?? [])] };
+    const drag: Drag = { c, r };
     if (x !== undefined) drag.x = x;
     if (y !== undefined) drag.y = y;
     if (tx !== undefined) drag.tx = tx;
@@ -385,78 +405,53 @@ export class Event {
  */
 export interface CapsBody {
   v?: string;
-  ops?: string[];
-  events?: string[];
-  cell?: { w?: number; h?: number };
+  cellcss?: { w?: number; h?: number };
   scale?: number;
   scheme?: string;
+  mod?: string;
+  features?: string[];
   limits?: Record<string, number>;
   net?: Record<string, string[]>;
-  passthrough?: boolean;
-  scroll?: boolean;
-  steps?: boolean;
-  drop?: boolean;
-  count?: boolean;
-  mod?: string;
   edit?: Record<string, string[]>;
-  keys?: { leader?: string; timeout?: number };
-  menu?: boolean;
   host?: string;
   version?: string;
   [field: string]: unknown;
 }
 
-/**
- * What a host says about itself in its reply to a query (SPEC §4), from a
- * body whose fields have their types ({@link Reply.caps}). A field the SDK
- * does not know is in raw.
- */
-/** An empty map, as a caps event sends a field that became absent (SPEC §9). */
-const isEmptyMap = (v: unknown): boolean => {
+/** A caps event's field that became absent: an empty map, array or string (SPEC §9). */
+const isEmpty = (v: unknown): boolean => {
+  if (v === "") return true;
+  if (Array.isArray(v)) return v.length === 0;
   if (typeof v !== "object" || v === null) return false;
   const proto = Object.getPrototypeOf(v);
   return (proto === Object.prototype || proto === null) && Object.keys(v).length === 0;
 };
 
+/**
+ * What a host says about itself in its reply to a query (SPEC §4), from a
+ * body whose fields have their types ({@link Reply.caps}), and, with only
+ * the fields that changed, in a caps event ({@link Event.changed}). A field
+ * the SDK does not know is in raw.
+ */
 export class Caps {
-  /** The protocol version the host answers in (SPEC §4): "0.2", for a host this SDK uses. */
+  /** The protocol version the host answers in (SPEC §4): "0.3", for a host this SDK uses. */
   readonly v: string | undefined;
-  /** The delta ops it supports; empty when it lists none. */
-  readonly ops: string[];
-  /** The event kinds it sends; empty when it lists none. */
-  readonly events: string[];
-  /** A cell's size in device pixels. */
-  readonly cell: { w: number; h: number } | undefined;
-  /** Device pixels per CSS pixel. */
+  /** A cell's size in CSS pixels (SPEC §5.3); undefined when the host did not say. */
+  readonly cellCss: { w: number; h: number } | undefined;
+  /** Device pixels per CSS pixel: a hint for the resolution of images. */
   readonly scale: number | undefined;
   /** The terminal's colour scheme: "dark" or "light". */
   readonly scheme: string | undefined;
+  /** The modifier Mod stands for in bindings, "Control" or "Meta" (SPEC §10.4). */
+  readonly mod: string | undefined;
+  /** The optional features the host has (SPEC §4): see {@link Caps.has}. */
+  readonly features: string[];
   /** The host's limits, such as surfaces (a count), resources and message (bytes) (SPEC §13). */
   readonly limits: Record<string, number>;
   /** The host's network policy, from directive to the sources it allows (SPEC §7.2): empty when it fetches nothing. */
   readonly net: Record<string, string[]>;
-  /** Whether the pointer passes through the parts of a surface that take none (SPEC §9.3). */
-  readonly passthrough: boolean;
-  /** Whether a document can ask to scroll (SPEC §5.1, §5.3); a host that does not say clips. */
-  readonly scroll: boolean;
-  /** Whether a drag of an element with data-steps says where in it the pointer is (SPEC §9.1). */
-  readonly steps: boolean;
-  /**
-   * Whether an element with drop in its data-on can be a drag's t without
-   * being dragged, and a drag says where in it the pointer is when it has
-   * data-steps (SPEC §9.1).
-   */
-  readonly drop: boolean;
-  /** Whether a repeated click says its place in its run of clicks (SPEC §9); a host that does not say counts none. */
-  readonly count: boolean;
-  /** The modifier Mod stands for in bindings, "Control" or "Meta" (SPEC §10.4). */
-  readonly mod: string | undefined;
   /** The host's edit shortcuts, from each action to its keys (SPEC §10.2); a host that reports them takes edit commands. */
   readonly edit: Record<string, string[]> | undefined;
-  /** The user's leader and how long a sequence waits, in milliseconds (SPEC §10.5); undefined when the host reads none. */
-  readonly keys: { leader?: string; timeout?: number } | undefined;
-  /** Whether the host shows a program's which-key menus (SPEC §10.6). */
-  readonly menu: boolean;
   /** A name for the implementation, when it gives one. */
   readonly host: string | undefined;
   /** The implementation's version, with host. */
@@ -467,79 +462,43 @@ export class Caps {
   constructor(body: CapsBody = {}) {
     this.raw = body;
     this.v = body.v;
-    this.ops = [...(body.ops ?? [])];
-    this.events = [...(body.events ?? [])];
-    const cell = body.cell;
-    this.cell = cell?.w !== undefined && cell.h !== undefined ? { w: cell.w, h: cell.h } : undefined;
+    const cell = body.cellcss;
+    this.cellCss = cell?.w !== undefined && cell.h !== undefined ? { w: cell.w, h: cell.h } : undefined;
     this.scale = body.scale;
     this.scheme = body.scheme;
+    this.mod = body.mod;
+    this.features = [...(body.features ?? [])];
     this.limits = { ...body.limits };
     this.net = {};
     for (const [k, v] of Object.entries(body.net ?? {})) this.net[k] = [...v];
-    this.passthrough = body.passthrough === true;
-    this.scroll = body.scroll === true;
-    this.steps = body.steps === true;
-    this.drop = body.drop === true;
-    this.count = body.count === true;
-    this.mod = body.mod;
     this.edit = body.edit && Object.fromEntries(Object.entries(body.edit).map(([a, k]) => [a, [...k]]));
-    this.keys = body.keys && { ...body.keys };
-    this.menu = body.menu === true;
     this.host = body.host;
     this.version = body.version;
   }
 
-  /** Whether the host supports a delta op. A host that lists no ops is taken to support them all. */
-  supports(op: Op | (string & {})): boolean {
-    return this.ops.length === 0 || this.ops.includes(op);
+  /**
+   * Whether the host has an optional feature (SPEC §4): `passthrough`,
+   * `hover`, `count` or `menu`. Everything else a 0.3 host does.
+   */
+  has(feature: Feature | (string & {})): boolean {
+    return this.features.includes(feature);
   }
 
   /**
-   * Whether the host sends an event kind; `drag` stands for the three drag
-   * kinds. A host that lists no kinds is taken to send them all.
+   * These capabilities with the fields a caps event changed
+   * ({@link Event.changed}) in place of their own, and without those it
+   * empties: a field that became absent comes as `{}`, `[]` or `""` (SPEC
+   * §9). Its raw is this one's with those fields replaced, so a relay
+   * announces the capabilities as they are now.
    */
-  sends(kind: EventKind | (string & {})): boolean {
-    if (kind === "dragstart" || kind === "dragend") kind = "drag";
-    return this.events.length === 0 || this.events.includes(kind);
-  }
-
-  /**
-   * Whether the host sends drags (SPEC §9.1). Unlike sends, a host that
-   * lists no kinds is taken not to: drags came after the first hosts, so a
-   * program offers another way to do what its drags do.
-   */
-  drags(): boolean {
-    return this.events.includes("drag");
-  }
-
-  /** Whether the host sends hover (SPEC §9.4); like drags, not when it lists no kinds. */
-  hovers(): boolean {
-    return this.events.includes("hover");
-  }
-
-  /** Whether the host reports which elements are in view (SPEC §9.5); like drags, not when it lists no kinds. */
-  views(): boolean {
-    return this.events.includes("view");
-  }
-
-  /** These capabilities with the fields a caps event changed ({@link Event.changed}) in place of their own,
-   * and without those it empties: a field that became absent comes as `{}` (SPEC §9). */
   merge(changed: Caps): Caps {
     const raw: Record<string, unknown> = { ...this.raw, ...changed.raw };
-    for (const [k, v] of Object.entries(changed.raw)) if (isEmptyMap(v)) delete raw[k];
+    for (const [k, v] of Object.entries(changed.raw)) if (isEmpty(v)) delete raw[k];
     return new Caps(raw as CapsBody);
   }
 
   /** Whether the terminal's colour scheme is light. */
   light(): boolean {
     return this.scheme === "light";
-  }
-
-  /** A cell's size in CSS pixels: cell divided by scale, and a usual 9 × 18 when the host gave no cell. */
-  cellCss(): { w: number; h: number } {
-    const s = this.scale !== undefined && this.scale > 0 ? this.scale : 1;
-    const c = this.cell;
-    if (!c || c.w <= 0 || c.h <= 0) return { w: 9, h: 18 };
-    return { w: c.w / s, h: c.h / s };
   }
 }

@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
 
-import { DEFAULT_MAX, Decoder } from "../src/index.ts";
+import { DEFAULT_MAX, Decoder, deltaOf, encode, HottyError, menuOf, type Message } from "../src/index.ts";
 import { describe, test } from "./harness.ts";
 
 const HEAD = "\x1b]7279;";
@@ -59,5 +59,27 @@ describe("Decoder max", () => {
     d.feed(HEAD + "a=res:id=x:type=text/plain:m=1;" + "A".repeat(2000) + ST);
     assert.equal(d.feed(HEAD + "a b" + ST).result, "invalid");
     assert.equal(d.invalid, 4);
+  });
+});
+
+describe("what a host reads of a program's bodies is bounded", () => {
+  const msg = (a: string, body: number[]): Message => {
+    const f = new Decoder().feed(encode([["a", a], ["s", "x"]], new Uint8Array(body)));
+    return f.message!;
+  };
+  const einval = (f: () => unknown) => assert.throws(f, (e) => e instanceof HottyError && e.code === "EINVAL");
+
+  test("an array or a map that claims more entries than the body holds does not decode, and holds nothing", () => {
+    // {"ops": array32(2^32 - 1)}, and the same as a map32.
+    einval(() => deltaOf(msg("delta", [0x81, 0xa3, 0x6f, 0x70, 0x73, 0xdd, 0xff, 0xff, 0xff, 0xff])));
+    einval(() => deltaOf(msg("delta", [0x81, 0xa3, 0x6f, 0x70, 0x73, 0x91, 0xdf, 0xff, 0xff, 0xff, 0xff])));
+    einval(() => menuOf(msg("menu", [0x81, 0xa5, 0x69, 0x74, 0x65, 0x6d, 0x73, 0xdd, 0xff, 0xff, 0xff, 0xff])));
+  });
+
+  test("a menu nested past the depth a body may have does not decode", () => {
+    // {"items": [{"items": [ … ]}]} forty levels deep.
+    const level = [0x91, 0x81, 0xa5, 0x69, 0x74, 0x65, 0x6d, 0x73];
+    const body = [0x81, 0xa5, 0x69, 0x74, 0x65, 0x6d, 0x73, ...Array.from({ length: 40 }, () => level).flat(), 0x90];
+    einval(() => menuOf(msg("menu", body)));
   });
 });

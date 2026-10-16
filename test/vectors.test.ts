@@ -18,27 +18,7 @@ type Any = any;
 const data: Any = JSON.parse(readFileSync(copy, "utf8"));
 
 // What this SDK implements, of what a vector may require: everything.
-const FEATURES = new Set([
-  "place.hover",
-  "event.hover",
-  "caps.passthrough",
-  "caps.version",
-  "caps.drag-kinds",
-  "options.unordered",
-  "doc.scroll",
-  "event.area",
-  "event.view",
-  "caps.views",
-  "reveal",
-  "caps.scroll",
-  "decode.abort-count",
-  "decode.max",
-  "event.count",
-  "event.drop",
-  "decode.unterminated",
-  "scanner.da1",
-  "graphemes",
-]);
+const FEATURES = new Set(["options.unordered", "decode.abort-count", "decode.max", "decode.unterminated", "scanner.da1", "graphemes"]);
 
 const runs = (v: Any) => (v.requires ?? []).every((r: string) => FEATURES.has(r));
 const utf8 = new TextEncoder();
@@ -133,7 +113,7 @@ function build(b: Any): string {
     case "hide":
       return hotty.hide(a.surface, ro);
     case "delta":
-      return hotty.delta(a.surface, a.op, a.target ?? "", a.key ?? "", a.payload ?? "", ro);
+      return hotty.delta(a.surface, a.ops, ro);
     case "set_text":
       return hotty.setText(a.surface, a.target, a.text, ro);
     case "set_var":
@@ -164,6 +144,10 @@ function build(b: Any): string {
       return hotty.edit(a.names ?? [], ro);
     case "menu":
       return hotty.menu(a.menu, ro);
+    case "menu_show":
+      return hotty.menuShow(a.keys, ro);
+    case "menu_hide":
+      return hotty.menuHide(ro);
     case "sync":
       return hotty.sync(...a.commands.map(build));
   }
@@ -230,6 +214,7 @@ function replyView(r: hotty.Reply) {
     surface: nul(r.surface),
     cols: nul(r.cols),
     rows: nul(r.rows),
+    op: nul(r.op),
     code: nul(r.code),
     detail: nul(r.detail),
   };
@@ -248,8 +233,8 @@ function eventView(e: hotty.Event) {
     value: nul(e.value()),
     checked: nul(e.checked()),
     fields: nul(e.fields()),
+    mods: e.mods(),
     link: link ? { href: link.href, url: nul(link.url) } : null,
-    size: nul(e.size()),
     fit_rows: nul(e.fitRows()),
     drag: drag ? { ...drag, x: nul(drag.x), y: nul(drag.y), tx: nul(drag.tx), ty: nul(drag.ty) } : null,
     hover: hover ? { c: nul(hover.c), r: nul(hover.r), out: hover.out } : null,
@@ -263,31 +248,18 @@ function eventView(e: hotty.Event) {
 function capsView(c: hotty.Caps, want: Any) {
   return {
     v: nul(c.v),
-    ops: c.ops,
-    events: c.events,
-    cell: nul(c.cell),
+    cell_css: nul(c.cellCss),
     scale: nul(c.scale),
     scheme: nul(c.scheme),
+    mod: nul(c.mod),
+    features: c.features,
     limits: c.limits,
     net: c.net,
-    passthrough: c.passthrough,
-    scroll: c.scroll,
-    steps: c.steps,
-    drop: c.drop,
-    count: c.count,
-    mod: nul(c.mod),
     edit: nul(c.edit),
-    keys: c.keys ? { leader: nul(c.keys.leader), timeout: nul(c.keys.timeout) } : null,
-    menu: c.menu,
     host: nul(c.host),
     version: nul(c.version),
-    drags: c.drags(),
-    hovers: c.hovers(),
-    views: c.views(),
     light: c.light(),
-    cell_css: c.cellCss(),
-    supports: Object.fromEntries(Object.keys(want.supports ?? {}).map((op) => [op, c.supports(op)])),
-    sends: Object.fromEntries(Object.keys(want.sends ?? {}).map((k) => [k, c.sends(k)])),
+    has: Object.fromEntries(Object.keys(want.has ?? {}).map((f) => [f, c.has(f)])),
   };
 }
 

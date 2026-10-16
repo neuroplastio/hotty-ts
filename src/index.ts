@@ -58,6 +58,7 @@ export {
   parseKey,
   parseKeymap,
   platformOf,
+  readKey,
   resolve,
   type Action,
   type Modifier,

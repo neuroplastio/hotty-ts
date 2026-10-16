@@ -12,7 +12,7 @@ export const MAX_NAME = 64;
  * The protocol version this SDK speaks (SPEC §4): its query lists it, and a
  * host's capabilities must name it for the SDK to use the host.
  */
-export const VERSION = "0.2";
+export const VERSION = "0.3";
 
 /** Which replies the host sends for a command (SPEC §3.5). */
 export type Quiet = 0 | 1 | 2;
@@ -31,7 +31,7 @@ export const SCROLL_HORIZONTAL = 2;
 /**
  * The event kinds a host sends (SPEC §9). A program ignores kinds it does
  * not know: later versions add some, and an Event reports its kind as it
- * came. In a host's capabilities, `drag` stands for the three drag kinds.
+ * came.
  */
 export const EVENT_KINDS = [
   "click",
@@ -41,7 +41,6 @@ export const EVENT_KINDS = [
   "press",
   "focus",
   "blur",
-  "resize",
   "fit",
   "hover",
   "view",
@@ -59,6 +58,23 @@ export const ERROR_CODES = ["EINVAL", "ENOENT", "ENOTARGET", "EDETACHED", "EQUOT
 /** One of {@link ERROR_CODES}. */
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
+/**
+ * The optional features a host may have (SPEC §4), as its capabilities list
+ * them ({@link Caps.has}). Everything else a 0.3 host does.
+ */
+export const FEATURES = ["passthrough", "hover", "count", "menu"] as const;
+/** One of {@link FEATURES}. */
+export type Feature = (typeof FEATURES)[number];
+
+/** Shift held, in an event's `mods` (SPEC §9). */
+export const MOD_SHIFT = 1;
+/** Alt held, in an event's `mods` (SPEC §9). */
+export const MOD_ALT = 2;
+/** Control held, in an event's `mods` (SPEC §9). */
+export const MOD_CONTROL = 4;
+/** Meta held, in an event's `mods` (SPEC §9). */
+export const MOD_META = 8;
+
 /** The delta operations (SPEC §6.1). */
 export const OPS = [
   "morph",
@@ -75,5 +91,5 @@ export const OPS = [
   "var",
   "reveal",
 ] as const;
-/** One of {@link OPS}. */
-export type Op = (typeof OPS)[number];
+/** One of {@link OPS}: what an {@link Op} does. */
+export type OpName = (typeof OPS)[number];
