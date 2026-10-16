@@ -1,12 +1,13 @@
 // A HOTTY host that runs inside a test (SDK.md §4.4).
 
 import { CAPS, DETAIL, ERROR } from "../bodies.ts";
-import { MAX_SIZE, OPS, VERSION } from "../constants.ts";
+import { deltaOf, menuFind, menuLevelOf, menuOf, menuShowOf, type MenuItem, type MenuTree, type Op } from "../commands.ts";
+import { MAX_SIZE, MOD_ALT, MOD_CONTROL, MOD_META, MOD_SHIFT, VERSION } from "../constants.ts";
 import { DEFAULT_MAX, Decoder } from "../decoder.ts";
 import { encode } from "../encode.ts";
 import { Field } from "../field.ts";
-import { INSERT, parseKey, parseKeymap, resolve as resolveKeymap } from "../keys.ts";
-import { type Area, Caps, type CapsBody, type Event, type Message } from "../messages.ts";
+import { decodeKeys, INSERT, parseKey, parseKeymap, platformOf, readKey, resolve as resolveKeymap } from "../keys.ts";
+import { type Area, Caps, type CapsBody, type Event, HottyError, type Message } from "../messages.ts";
 import { pack } from "../msgpack.ts";
 import { validName } from "../names.ts";
 import {
@@ -39,7 +40,7 @@ export type HostErrorCode =
   | "no-element"
   | "detached" // the surface is detached, and reports nothing
   | "not-placed"
-  | "no-press" // the placement did not ask for presses
+  | "no-press" // the surface did not ask for presses
   | "not-control" // the element is not a control that takes this
   | "no-report" // nothing with an id reports this click
   | "no-drag" // no drag is in progress
@@ -55,18 +56,21 @@ export class HostError extends Error {
   }
 }
 
-/** The capabilities a Host reports unless its options say otherwise. */
+/**
+ * The capabilities a Host reports unless its options say otherwise. Its
+ * features are the ones it can honour: it lays nothing out, so it has no
+ * passthrough, but it hears where the pointer is (hover), counts clicks
+ * (count, {@link Host.doubleClick}) and records the menu a program shows
+ * (menu, {@link Host.menu}).
+ */
 export function defaultCaps(): CapsBody {
   return {
     v: VERSION,
-    ops: [...OPS],
-    events: ["click", "change", "input", "submit", "press", "focus", "blur", "resize", "drag", "fit", "hover"],
-    cell: { w: 9, h: 18 },
+    cellcss: { w: 9, h: 18 },
     scale: 1,
     scheme: "dark",
+    features: ["hover", "count", "menu"],
     limits: { surfaces: 64, message: DEFAULT_MAX },
-    scroll: true,
-    count: true,
     host: "hotty-ts-test",
   };
 }
@@ -75,7 +79,9 @@ export function defaultCaps(): CapsBody {
 export interface HostOptions {
   /**
    * Capability fields to report instead of the defaults' ({@link defaultCaps}),
-   * each sent as its type (SPEC §4): scale as a float, whole or not. The
+   * each sent as its type (SPEC §4): scale as a float, whole or not.
+   * `features` replaces the default list: a test that wants a host without
+   * hover or menus names the ones it has. The
    * host speaks VERSION whatever v they give: a query that does not list it
    * gets EVERSION.
    */
@@ -159,7 +165,14 @@ function estimateRows(s: Surface, cols: number): number {
 export class Host implements AsyncIterable<Uint8Array> {
   readonly cols: number;
   readonly rows: number;
-  readonly #caps: CapsBody;
+  #caps: CapsBody;
+  #heard: CapsBody; // the capabilities the program last heard (SPEC §4)
+  #queried = false; // the program has asked, so it hears of changes
+  #faultOp = -1; // the index of the op a delta failed at, or -1
+  #menus: [MenuTree | undefined, MenuTree | undefined] = [undefined, undefined]; // the program's menu on the main and the alternate screen
+  #shown = false; // the program shows a level of it (a=menu:show=1)
+  #menuSeq: string[] = []; // the keys of the level shown
+  #prefix: Surface | undefined; // the surface whose keys all reach the program, while it has the keyboard (SPEC §10.5)
   #text: boolean;
   #late: Message | undefined; // a query asking for a late answer, held while not a host
   readonly #lenient: boolean;
@@ -206,6 +219,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     const message = this.#caps.limits?.message ?? 0;
     this.#dec.max = message > 0 ? message : DEFAULT_MAX;
     if (!(message > 0)) this.#caps.limits = { ...this.#caps.limits, message: DEFAULT_MAX };
+    this.#heard = this.#caps;
     this.#text = options.text ?? false;
     this.#lenient = options.lenient ?? false;
     this.#kitty = options.kittyGraphics ?? false;
@@ -286,6 +300,7 @@ export class Host implements AsyncIterable<Uint8Array> {
 
   /** Sends text to the program as keys typed: "q", "\r" for Enter, "\x03" for Ctrl-C, "\x1b" for Escape. */
   type(keys: string): void {
+    for (const k of decodeKeys(utf8.encode(keys))) if (k !== undefined) this.#menuKey(k);
     this.#send(keys);
   }
 
@@ -388,6 +403,12 @@ export class Host implements AsyncIterable<Uint8Array> {
   // Enters or leaves the alternate screen. A placement made there belongs
   // to it: leaving deletes its surface (SPEC §5.4, SHOULD).
   #altScreen(on: boolean) {
+    if (on !== this.#alt) {
+      // The screen changed: the level shown hides, and leaving the
+      // alternate screen drops its menu (SPEC §10.7).
+      this.#shown = false;
+      if (this.#alt) this.#menus[1] = undefined;
+    }
     if (!on && this.#alt) {
       for (const [name, s] of this.#surfaces) {
         if (s.placed && s.alt) {
@@ -411,6 +432,8 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#late = undefined;
     this.#surfaces.clear();
     this.#keyboard = undefined;
+    this.#menus = [undefined, undefined];
+    this.#shown = false;
     this.#scr = new Screen(this.cols, this.rows);
     this.#alt = false;
     this.#hidden = false;
@@ -476,9 +499,12 @@ export class Host implements AsyncIterable<Uint8Array> {
   // Carries out one command and answers it (SPEC §3.6).
   #command(m: Message) {
     const a = m.get("a") ?? "";
+    this.#faultOp = -1;
     const { code, detail, extra } = this.#do(a, m);
     if (code === "EINVAL") this.#protocol(`${a} refused: EINVAL (${detail}): ${ctlString(m)}`);
-    const q = m.get("q");
+    // Only errors, unless asked: a command with n, and a query, are
+    // answered whatever the outcome (SPEC §3.5).
+    const q = m.get("q") ?? (m.get("n") !== undefined || a === "q" ? "0" : "1");
     if (!(q === "2" || (q === "1" && !code))) {
       const ctl: [string, string][] = [["a", code ? "err" : "ok"]];
       const n = m.get("n");
@@ -486,9 +512,15 @@ export class Host implements AsyncIterable<Uint8Array> {
       const s = m.get("s");
       if (s !== undefined) ctl.push(["s", s]);
       ctl.push(["re", a], ...extra);
+      // A delta's error names the op at fault (SPEC §6.1).
+      if (code && this.#faultOp >= 0) ctl.push(["i", String(this.#faultOp)]);
       let payload: Uint8Array | undefined;
       if (code) payload = pack({ code, detail }, ERROR);
-      else if (a === "q") payload = pack(this.#caps, CAPS);
+      else if (a === "q") {
+        payload = pack(this.#caps, CAPS);
+        this.#heard = this.#caps;
+        this.#queried = true;
+      }
       this.#reply(encode(ctl, payload));
     }
     // After the reply: the host lays the document out on its next frame,
@@ -534,6 +566,12 @@ export class Host implements AsyncIterable<Uint8Array> {
         return ok;
       }
     }
+    if (a === "menu") {
+      // The program's menu, and the level of it shown (SPEC §10.7). A host
+      // without the feature takes no a=menu.
+      if (!this.caps.has("menu")) return err("EINVAL", "no menus here");
+      return this.#menuCommand(m);
+    }
     if (!["doc", "place", "hide", "delta", "del", "detach", "focus", "blur"].includes(a)) return err("EINVAL", "unknown action " + a);
     const name = m.get("s");
     if (name === undefined || !validName(name)) return err("EINVAL", "bad surface name");
@@ -554,9 +592,9 @@ export class Host implements AsyncIterable<Uint8Array> {
         s.setDoc(markup);
       }
       s.detached = m.get("d") === "1";
-      // Like d, scroll belongs to the document; a host without it ignores it.
+      // Like d, scroll belongs to the document.
       const axes = m.get("scroll");
-      s.scroll = this.#caps.scroll === true && (axes === "1" || axes === "2" || axes === "3") ? Number(axes) : 0;
+      s.scroll = axes === "1" || axes === "2" || axes === "3" ? Number(axes) : 0;
       return ok;
     }
     if (!s) return err("ENOENT", "no surface " + name);
@@ -567,18 +605,28 @@ export class Host implements AsyncIterable<Uint8Array> {
         if (this.#drag?.s === s) this.#cutDrag();
         if (s.placed && this.#keyboard === s) this.#blur(s);
         s.placed = false;
-        s.heard = undefined;
         return ok;
       case "delta": {
-        const op = m.get("op") || "morph";
-        if (!(OPS as readonly string[]).includes(op)) return err("EINVAL", "unknown op " + op);
-        const t = m.get("t") ?? "";
-        const k = m.get("k") ?? "";
-        if (t === "" && op !== "morph") return err("EINVAL", "missing t");
-        if (k === "" && (op === "attr" || op === "unattr" || op === "var")) return err("EINVAL", "missing k");
-        const out = s.delta(op, t, k, m.text());
+        // The whole body is checked before any op applies; a missing
+        // target fails its op alone, and the ops after it still apply.
+        let ops: Op[];
+        try {
+          ops = deltaOf(m);
+        } catch (e) {
+          if (!(e instanceof HottyError)) throw e;
+          this.#faultOp = e.op ?? -1;
+          return err(e.code, e.detail ?? "");
+        }
+        let failed: { code: string; detail: string } | undefined;
+        ops.forEach((op, i) => {
+          const out = s.delta(op);
+          if (out && !failed) {
+            failed = out;
+            this.#faultOp = i;
+          }
+        });
         if (this.#keyboard === s && !s.keyb) this.#keyboard = undefined; // the focused element went
-        return out ? err(out.code, out.detail) : ok;
+        return failed ? err(failed.code, failed.detail) : ok;
       }
       case "del":
         if (this.#keyboard === s) this.#keyboard = undefined;
@@ -651,17 +699,16 @@ export class Host implements AsyncIterable<Uint8Array> {
     const z = num("z", 0, -1000, 1000);
     if (z === undefined) return err("z out of range");
     s.placed = true;
-    s.placement = {
-      cols: c,
-      rows: r,
-      z,
-      press: m.get("p") === "1",
-      fit: m.get("f") === "1",
-      hover: m.get("v") === "1",
-      keepCursor: m.get("C") === "1",
-    };
-    if (!s.placement.hover) s.heard = undefined; // v=1 again starts from out (SPEC §9.4)
-    s.fitRows = r;
+    const flag = (k: string): boolean | undefined => (m.get(k) === "1" ? true : m.get(k) === "0" ? false : undefined);
+    s.placement = { cols: c, rows: r, z, press: flag("p"), fit: flag("f"), hover: flag("v"), keepCursor: m.get("C") === "1" };
+    // p, f and v belong to the surface: a placement without one leaves it as
+    // it was (SPEC §5.2).
+    const wasHover = s.hover;
+    s.press = s.placement.press ?? s.press;
+    s.fit = s.placement.fit ?? s.fit;
+    s.hover = s.placement.hover ?? s.hover;
+    if (s.hover && !wasHover) s.heard = undefined; // v=1 starts from out (SPEC §9.4)
+    s.fitRows = r; // each placement counts from its own rows (SPEC §5.2)
     if (["x", "y", "w", "h"].some((k) => m.get(k) !== undefined)) s.placement.window = { x, y, w, h };
     s.col = this.#scr.col;
     s.row = this.#scr.row;
@@ -687,20 +734,25 @@ export class Host implements AsyncIterable<Uint8Array> {
       const s = this.#surfaces.get(m.get("s") ?? "");
       if (s) check = [s];
     }
-    for (const s of check) {
-      if (!s.placed || !s.placement.fit || s.detached) continue;
-      const n = Math.max(1, Math.min(MAX_SIZE, this.#autoRows(s, s.placement.cols)));
-      if (n !== s.fitRows) {
-        s.fitRows = n;
-        this.#event(s, "fit", "", { r: n });
-      }
+    for (const s of check) this.#refitSurface(s);
+  }
+
+  // Sends fit if the rows the surface's document needs now differ from the
+  // rows the program last heard.
+  #refitSurface(s: Surface) {
+    if (!s.placed || !s.fit || s.detached) return;
+    const n = Math.max(1, Math.min(MAX_SIZE, this.#autoRows(s, s.placement.cols)));
+    if (n !== s.fitRows) {
+      s.fitRows = n;
+      this.#event(s, "fit", "", { r: n });
     }
   }
 
-  // Sends an event, its detail written as its kind's type: resize's w and
-  // h go out as floats, whole or not.
+  // Sends an event, its detail written as its kind's type. t is left out
+  // where no element is meant (SPEC §9).
   #event(s: Surface, kind: string, target: string, detail?: unknown) {
-    const ctl: [string, string][] = [["a", "ev"], ["s", s.name], ["e", kind], ["t", target]];
+    const ctl: [string, string][] = [["a", "ev"], ["s", s.name], ["e", kind]];
+    if (target !== "") ctl.push(["t", target]);
     this.#reply(encode(ctl, detail === undefined ? undefined : pack(detail, DETAIL.get(kind))));
   }
 
@@ -716,6 +768,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     s.focusedNode = el;
     s.keyb = true;
     this.#keyboard = s;
+    this.#prefix = undefined; // a focus, the program's or the user's, ends a prefix (SPEC §10.5)
     if (report && (!had || was !== el)) {
       const n = closest(el, (n) => (attr(n, "id") ?? "") !== "");
       this.#event(s, "focus", n ? attr(n, "id")! : "");
@@ -736,6 +789,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (s.keyb) this.#commit(s);
     s.keyb = false;
     if (this.#keyboard === s) this.#keyboard = undefined;
+    if (this.#prefix === s) this.#prefix = undefined;
     this.#event(s, "blur", "");
   }
 
@@ -769,36 +823,63 @@ export class Host implements AsyncIterable<Uint8Array> {
    * (target=_blank) is opened by the terminal and reports nothing (opened).
    * A submit button then submits its form. On a detached surface it does
    * what is local and throws "detached".
+   *
+   * keys are the modifier keys held ("shift", "ctrl", "alt", "meta"); the
+   * click carries those held at its release (SPEC §9). A press with Alt is
+   * the program's own gesture (SPEC §9.2): the surface hears nothing of it,
+   * and the pointer is out of its window.
    */
-  click(surface: string, id: string): void {
+  click(surface: string, id: string, keys: readonly string[] = []): void {
     const s = this.#target(surface);
-    this.#click(s, this.#element(s, id));
+    const el = this.#element(s, id);
+    if (this.#alt1(s, keys)) return;
+    this.#click(s, el, true, 1, modBits(keys));
   }
 
   /**
    * Clicks the element with an id twice, as a double click does: click,
    * then a click that says it is the second of its run (count 2, SPEC §9).
    */
-  doubleClick(surface: string, id: string): void {
+  doubleClick(surface: string, id: string, keys: readonly string[] = []): void {
     const s = this.#target(surface);
     const el = this.#element(s, id);
-    this.#click(s, el);
-    this.#click(s, el, true, 2);
+    if (this.#alt1(s, keys)) return;
+    this.#click(s, el, true, 1, modBits(keys));
+    this.#click(s, el, true, 2, modBits(keys));
   }
 
-  /** Clicks the first link in a surface whose href is href, as written: for links with no id. */
-  clickLink(surface: string, href: string): void {
+  /** Clicks the first link in a surface whose href is href, as written: for links with no id. It is click on that link. */
+  clickLink(surface: string, href: string, keys: readonly string[] = []): void {
     const s = this.#target(surface);
     const el = find(s.doc, (n) => isElement(n) && n.tagName === "a" && attr(n, "href") === href);
     if (!isElement(el)) throw new HostError("no-element", `no link to ${href} in ${s.name}`);
-    this.#click(s, el);
+    if (this.#alt1(s, keys)) return;
+    this.#click(s, el, true, 1, modBits(keys));
+  }
+
+  // Whether a press is made with Alt held, which is the program's gesture
+  // and not the surface's (SPEC §9.2): the pointer is then out of the
+  // window (SPEC §9.4), and the surface hears nothing more.
+  #alt1(s: Surface, keys: readonly string[]): boolean {
+    if ((modBits(keys) & MOD_ALT) === 0) return false;
+    this.#leave(s);
+    return true;
+  }
+
+  // Whether the host has a feature (SPEC §4): without hover it never says
+  // where the pointer is, and without count every click reads as the first
+  // of its run.
+  #hears(feature: string): boolean {
+    return this.caps.has(feature);
   }
 
   // A click on el: by the pointer, which presses first, or by the keyboard
   // (key), which does not. count is its place in its run of clicks, which
-  // its detail carries from 2 on (SPEC §9).
-  #click(s: Surface, el: El, pointer = true, count = 1) {
-    const n = count > 1 ? { count } : {};
+  // its detail carries from 2 on (SPEC §9), and mods the modifier keys
+  // held, as bits.
+  #click(s: Surface, el: El, pointer = true, count = 1, mods = 0) {
+    if (!this.#hears("count")) count = 1;
+    const n = { ...(mods !== 0 ? { mods } : {}), ...(count > 1 ? { count } : {}) };
     const a = closest(el, (n) => n.tagName === "a");
     if (a && attr(a, "href") !== undefined && hyperlink(a)) {
       const u = resolve(s, a);
@@ -806,7 +887,7 @@ export class Host implements AsyncIterable<Uint8Array> {
       return;
     }
     if (s.detached) throw this.#detachedError(s);
-    if (pointer && s.placement.press) this.#pressAt(s, el);
+    if (pointer && s.press) this.#pressAt(s, el, mods);
     const f = closest(el, focusable);
     if (f) this.#takeKeyboard(s, f, true);
     else if (this.#keyboard) this.#blur(this.#keyboard); // a click on what takes no focus (SPEC §10.1)
@@ -833,22 +914,27 @@ export class Host implements AsyncIterable<Uint8Array> {
 
   /**
    * Presses the element with an id, or empty space (""), with the primary
-   * button (SPEC §9): reported only on a placement made with press, as the
-   * id of the nearest element with one.
+   * button (SPEC §9): reported only on a surface that asked for presses, as
+   * the id of the nearest element with one. keys are the modifier keys held,
+   * as for click.
    */
-  press(surface: string, id: string): void {
+  press(surface: string, id: string, keys: readonly string[] = []): void {
     const s = this.#target(surface);
     const el = id === "" ? undefined : this.#element(s, id);
     if (s.detached) throw this.#detachedError(s);
-    if (!s.placement.press) throw new HostError("no-press", "the placement did not ask for presses");
-    this.#pressAt(s, el);
+    if (!s.press) throw new HostError("no-press", "the surface did not ask for presses");
+    if (this.#alt1(s, keys)) return;
+    this.#pressAt(s, el, modBits(keys));
   }
 
-  #pressAt(s: Surface, el: El | undefined) {
+  #pressAt(s: Surface, el: El | undefined, mods: number) {
     const n = closest(el, (n) => attr(n, "id") !== undefined);
     const id = n ? attr(n, "id")! : "";
-    const area = areaOf(s, id);
-    this.#event(s, "press", id, area.area ? area : undefined);
+    // The detail is the element's cells, which this host knows only from
+    // the test (setArea), and the modifiers held; with neither, there is
+    // none (SPEC §9).
+    const detail = { ...areaOf(s, id), ...(mods !== 0 ? { mods } : {}) };
+    this.#event(s, "press", id, Object.keys(detail).length > 0 ? detail : undefined);
   }
 
   /**
@@ -934,25 +1020,28 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#submit(s, form, undefined);
   }
 
-  // Sends the form's fields as FormData has them: named controls that are
-  // not disabled, boxes only when checked, and the submitter's own.
+  // Sends the form's fields as FormData has them, in tree order: named
+  // controls that are not disabled, boxes only when checked, and the
+  // submitter's own.
   #submit(s: Surface, form: El, submitter: El | undefined) {
     const fid = attr(form, "id");
     if (fid === undefined) return;
-    const fields: Record<string, string> = {};
+    const fields: [string, string][] = [];
     walk(form, (n) => {
       if (!isElement(n)) return;
       const name = attr(n, "name");
       if (!name || attr(n, "disabled") !== undefined) return;
       if (n.tagName === "button" || (n.tagName === "input" && reportsClick(n))) {
-        if (n === submitter) fields[name] = attr(n, "value") ?? "";
+        if (n === submitter) fields.push([name, attr(n, "value") ?? ""]);
       } else if (box(n)) {
-        if (s.isChecked(n)) fields[name] = s.valueOf(n);
+        if (s.isChecked(n)) fields.push([name, s.valueOf(n)]);
       } else if (control(n)) {
-        fields[name] = s.valueOf(n);
+        fields.push([name, s.valueOf(n)]);
       }
     });
-    this.#event(s, "submit", fid, fields);
+    // The fields in tree order, two of one name two pairs; a form with none
+    // still sends the list (SPEC §9).
+    this.#event(s, "submit", fid, { fields });
   }
 
   /** Takes the keyboard from a surface, as a click elsewhere does: the control being edited commits, then blur. */
@@ -1007,8 +1096,11 @@ export class Host implements AsyncIterable<Uint8Array> {
    * a field's keymap leaves those bindings out.
    */
   key(key: string): boolean {
+    this.#menuKey(key);
     const s = this.#keyboard;
-    if (s && !s.detached && this.#useKey(s, key)) return true;
+    // After a prefix every key reaches the program, whatever is focused
+    // (SPEC §10.5).
+    if (s && !s.detached && this.#prefix !== s && this.#useKey(s, key)) return true;
     const seq = keySequence(key);
     if (seq !== "") this.#send(seq);
     return false;
@@ -1023,11 +1115,24 @@ export class Host implements AsyncIterable<Uint8Array> {
     }
     const el = s.focusedNode;
     if (!el) return false; // no element focused, no keymap (SPEC §10.2)
-    if (textField(el)) return this.#fieldKey(s, el, key);
+    const platform = platformOf(this.caps);
+    if (textField(el)) {
+      // A key bound to prefix is not the field's: it and every key after it
+      // reach the program (SPEC §10.2, §10.5).
+      if (resolveKeymap(platform, el.tagName === "textarea" || editingHost(el), ...keymaps(el)).prefix(key)) {
+        this.#prefix = s;
+        return false;
+      }
+      return this.#fieldKey(s, el, key);
+    }
     // Any other element's keymap gives keys to the program; its scroll
     // actions do nothing here, where nothing scrolls, and a nearer one takes
     // a key back from a farther program.
-    if (parseKeymap({}, keymaps(el).join(" ")).program(key)) return false;
+    const km = parseKeymap(platform, keymaps(el).join(" "));
+    if (km.program(key)) {
+      if (km.prefix(key)) this.#prefix = s;
+      return false;
+    }
     if (!shiftOnly) return false;
     if (textInput(el)) {
       // A date or time input.
@@ -1046,7 +1151,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (reportsClick(el) && (el.tagName !== "a" || !hyperlink(el))) {
       if (name !== " " && name !== "Enter") return false;
       try {
-        this.#click(s, el, false);
+        this.#click(s, el, false, 1, mods.includes("Shift") ? MOD_SHIFT : 0);
       } catch (e) {
         if (!(e instanceof HostError)) throw e; // nothing with an id reports it
       }
@@ -1067,7 +1172,7 @@ export class Host implements AsyncIterable<Uint8Array> {
       s.fields.set(el, f);
     }
     f.value = s.valueOf(el);
-    const keys = resolveKeymap({}, multi, ...(textField(el) ? keymaps(el) : []));
+    const keys = resolveKeymap(platformOf(this.caps), multi, ...(textField(el) ? keymaps(el) : []));
     const a = keys.lookup(key);
     if (a === undefined) return false;
     if (a === "submit") {
@@ -1175,7 +1280,8 @@ export class Host implements AsyncIterable<Uint8Array> {
   /**
    * Presses a mouse's primary button on the element with an id and starts a
    * drag (SPEC §9.1), at the surface's cell c, r, with the modifier keys
-   * held. press first, if the placement asks; then dragstart, from the
+   * held ("shift", "ctrl", "alt", "meta"; Alt is the program's gesture, as
+   * for click). press first, if the surface asked; then dragstart, from the
    * nearest element from it outward with drag in its data-on; then the
    * keyboard, as a click moves it. Throws "no-report", with no drag, if no
    * element with an id opts in. The host lays nothing out, so a test names
@@ -1190,8 +1296,7 @@ export class Host implements AsyncIterable<Uint8Array> {
    * dragStart on an element with data-steps (SPEC §9.1), with the pointer
    * at step x, y of it. The host lays nothing out, so the test says where in
    * the element the pointer is: a step past the element's count is clamped
-   * to it, and one along an axis it does not count is ignored. The host
-   * reports steps only when its caps say steps.
+   * to it, and one along an axis it does not count is ignored.
    */
   dragStartStep(surface: string, id: string, c: number, r: number, x: number, y: number, keys: string[] = []): void {
     this.#dragStart(surface, id, c, r, x, y, keys);
@@ -1202,12 +1307,12 @@ export class Host implements AsyncIterable<Uint8Array> {
     const el = this.#element(s, id);
     if (s.detached) throw this.#detachedError(s);
     if (this.#drag) throw new HostError("dragging", "a drag is already in progress");
-    if (s.placement.press) this.#pressAt(s, el);
+    if (this.#alt1(s, keys)) return;
+    if (s.press) this.#pressAt(s, el, modBits(keys));
     const on = closest(el, listens("drag"));
     const rid = attr(on, "id");
     if (on && rid !== undefined) {
-      const n: [number, number] = this.#caps.steps === true ? steps(on) : [0, 0];
-      const d: Drag = { s, start: on, id: rid, t: rid, c, r, n, x: 0, y: 0, tn: [0, 0], tx: 0, ty: 0 };
+      const d: Drag = { s, start: on, id: rid, t: rid, c, r, n: steps(on), x: 0, y: 0, tn: [0, 0], tx: 0, ty: 0 };
       [d.x, d.y] = clampSteps(d.n, x, y);
       this.#drag = d;
       this.#event(s, "dragstart", rid, dragDetail(d, c, r, keys));
@@ -1222,8 +1327,8 @@ export class Host implements AsyncIterable<Uint8Array> {
    * Moves the pointer of the drag in progress onto the element with an id in
    * its surface, or onto none (""), at the surface's cell c, r: drag when t,
    * the element under the pointer, changes, and while that is none, when the
-   * cell does. t is the nearest element with an id and drag in its data-on,
-   * or drop when the caps say drop. In a t with data-steps the pointer stays
+   * cell does. t is the nearest element with an id and drag or drop in its
+   * data-on. In a t with data-steps the pointer stays
    * at the step it was at in t, or 0 in a new one (dragOver).
    */
   dragMove(id: string, c: number, r: number, keys: string[] = []): void {
@@ -1246,7 +1351,7 @@ export class Host implements AsyncIterable<Uint8Array> {
    * into before, into and after. The host lays nothing out, so the test says
    * where in t the pointer is: a step past t's count is clamped to it, and
    * one along an axis t does not count is ignored. drag also when that step
-   * changes. The host reports it only when its caps say drop.
+   * changes.
    */
   dragOver(id: string, c: number, r: number, tx: number, ty: number, keys: string[] = []): void {
     const d = this.#current();
@@ -1296,7 +1401,9 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#event(d.s, "dragend", t, dragDetail(d, c, r, keys));
     if (own === d.id && reportsClick(d.start)) {
       const v = attr(d.start, "value");
-      this.#event(d.s, "click", d.id, v === undefined ? undefined : { value: v });
+      const m = modBits(keys);
+      const detail = { ...(m !== 0 ? { mods: m } : {}), ...(v === undefined ? {} : { value: v }) };
+      this.#event(d.s, "click", d.id, Object.keys(detail).length > 0 ? detail : undefined);
     }
   }
 
@@ -1312,9 +1419,9 @@ export class Host implements AsyncIterable<Uint8Array> {
   }
 
   // What is under the pointer of the drag in progress, from the element named
-  // outward: t, the nearest element with an id and drag in its data-on, or
-  // drop when the caps say drop; and own, the nearest with an id and drag,
-  // for whether the release is a click.
+  // outward: t, the nearest element with an id and drag or drop in its
+  // data-on; and own, the nearest with an id and drag, for whether the
+  // release is a click.
   #over(id: string): [Drag, string, string] {
     const d = this.#current();
     if (id === "") return [d, "", ""];
@@ -1322,13 +1429,13 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (!el) throw new HostError("no-element", `no #${id} in ${d.s.name}`);
     const withId = (on: (n: El) => boolean) => attr(closest(el, (n) => attr(n, "id") !== undefined && on(n)), "id") ?? "";
     const own = withId(listens("drag"));
-    const t = this.#caps.drop === true ? withId((n) => listens("drag")(n) || listens("drop")(n)) : own;
+    const t = withId((n) => listens("drag")(n) || listens("drop")(n));
     return [d, t, own];
   }
 
-  // t's data-steps, when t has drop in its data-on and the caps say drop.
+  // t's data-steps, when t has drop in its data-on.
   #targetSteps(d: Drag, t: string): [number, number] {
-    const el = t === "" || this.#caps.drop !== true ? undefined : d.s.byId(t);
+    const el = t === "" ? undefined : d.s.byId(t);
     return el && listens("drop")(el) ? steps(el) : [0, 0];
   }
 
@@ -1344,21 +1451,22 @@ export class Host implements AsyncIterable<Uint8Array> {
   /**
    * Moves the pointer onto a placed surface, over the element with an id (or
    * "" for nothing with an id), at the surface's cell c, r. The surface the
-   * pointer was on is left first. A placement made with hover hears hover
-   * when the element differs from what it heard last.
+   * pointer was on is left first. A surface that asked for hover, on a
+   * host with the feature, hears hover when the element differs from what
+   * it heard last.
    */
   hover(surface: string, id: string, c: number, r: number): void {
     const s = this.#target(surface);
     if (id !== "") this.#element(s, id);
     if (this.#hovered && this.#hovered !== s) this.#leave(this.#hovered);
     this.#hovered = s;
-    if (s.placement.hover && !s.detached && s.heard !== id) {
+    if (s.hover && s.placed && !s.detached && this.#hears("hover") && s.heard !== id) {
       s.heard = id;
       this.#event(s, "hover", id, { c, r });
     }
   }
 
-  /** Takes the pointer off the surface it is on; a placement made with hover hears it is out. */
+  /** Takes the pointer off the surface it is on; a surface that asked for hover hears it is out. */
   unhover(): void {
     if (this.#hovered) {
       this.#leave(this.#hovered);
@@ -1367,7 +1475,7 @@ export class Host implements AsyncIterable<Uint8Array> {
   }
 
   #leave(s: Surface) {
-    if (s.placed && s.placement.hover && !s.detached && s.heard !== undefined) {
+    if (s.placed && s.hover && !s.detached && this.#hears("hover") && s.heard !== undefined) {
       s.heard = undefined;
       this.#event(s, "hover", "", { out: true });
     }
@@ -1375,10 +1483,10 @@ export class Host implements AsyncIterable<Uint8Array> {
 
   /**
    * Sends any event from a surface, for what the other actions do not
-   * cover: a resize, a kind from a later version. The detail goes out as a
-   * msgpack map: each field of a kind SPEC §9 lists as its type, so that a
-   * resize's `{ w: 320, h: 48 }` is floats, and in any other field a whole
-   * number as an int, another number or a `Float` as a float.
+   * cover: a kind from a later version, an event the test makes up. The
+   * detail goes out as a msgpack map: each field of a kind SPEC §9 lists as
+   * its type, and in any other field a whole number as an int, another
+   * number or a `Float` as a float.
    */
   emit(surface: string, kind: string, target: string, detail?: unknown): void {
     if (this.#text) throw new HostError("not-host", "the terminal is not a HOTTY host");
@@ -1386,6 +1494,142 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (!s) throw new HostError("no-surface", `no surface ${surface}`);
     if (s.detached) throw this.#detachedError(s);
     this.#event(s, kind, target, detail);
+  }
+
+  /**
+   * Changes the capabilities the host reports, as the terminal does when the
+   * user changes its font, theme or settings, or when a multiplexer's
+   * program moves to another viewer's host (SPEC §4): f is given a copy to
+   * change. The program, if it asked, then hears `caps` with every field
+   * that differs from what it last heard (SPEC §9), the empty value for one
+   * that became absent. A new scale alone says nothing: a zoom is not told
+   * (SPEC §4). A new cell size lays the documents out again, so a surface
+   * that asked for fit may hear it.
+   */
+  change(f: (c: CapsBody) => void): void {
+    const c = structuredClone(this.#caps);
+    f(c);
+    const cellChanged = !same(c.cellcss, this.#caps.cellcss);
+    this.#caps = c;
+    if (this.#queried && !this.#text) this.#tellCaps();
+    if (cellChanged) for (const s of this.surfaces()) this.#refitSurface(s);
+  }
+
+  // Sends caps with the fields that differ from what the program last
+  // heard, if any besides the scale.
+  #tellCaps() {
+    const was = this.#heard;
+    const now = this.#caps;
+    const body: Record<string, unknown> = {};
+    for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) {
+      if (same(was[k], now[k])) continue;
+      const v = now[k];
+      // A field that became absent comes as its type's empty value (SPEC §9).
+      body[k] = v !== undefined ? v : Array.isArray(was[k]) ? [] : typeof was[k] === "string" ? "" : typeof was[k] === "number" ? 0 : {};
+    }
+    const keys = Object.keys(body);
+    // A zoom changes the scale alone, and says nothing (SPEC §4).
+    if (keys.length === 0 || (keys.length === 1 && keys[0] === "scale")) return;
+    this.#heard = now;
+    this.#reply(encode([["a", "ev"], ["e", "caps"]], pack(body, CAPS)));
+  }
+
+  // --- the program's menu (SPEC §10.7) ----------------------------------------------
+
+  // Carries out an a=menu: a menu, with no show; the level to show, with
+  // show=1; the level hidden, with show=0.
+  #menuCommand(m: Message): { code?: string; detail?: string; extra: [string, string][] } {
+    const ok = { extra: [] as [string, string][] };
+    try {
+      switch (m.get("show")) {
+        case undefined:
+          // A level shown stays, as the same keys' level of the new menu.
+          this.#menus[this.#screen()] = menuOf(m);
+          break;
+        case "0":
+          this.#shown = false;
+          break;
+        case "1":
+          this.#menuSeq = menuShowOf(m);
+          this.#shown = true;
+          break;
+        default:
+          return { code: "EINVAL", detail: "show is 0 or 1", extra: [] };
+      }
+    } catch (e) {
+      if (!(e instanceof HottyError)) throw e;
+      return { code: e.code, detail: e.detail ?? "", extra: [] };
+    }
+    return ok;
+  }
+
+  // The index of the screen on: 0 the main, 1 the alternate.
+  #screen(): 0 | 1 {
+    return this.#alt ? 1 : 0;
+  }
+
+  // The items the level shown has a key for, in order: none when the
+  // program shows none, or its keys reach no group, or no item has a key.
+  #level(): MenuItem[] {
+    if (!this.#shown) return [];
+    const items = menuLevelOf(this.#menus[this.#screen()], platformOf(this.caps), this.#menuSeq) ?? [];
+    return items.filter((it) => (it.key ?? "") !== "");
+  }
+
+  // Hides the level a program shows when a key makes it stale: Escape, or a
+  // key it does not list (SPEC §10.7). A key it lists keeps it: the program
+  // shows the next level. The key still goes where it would without the level.
+  #menuKey(key: string) {
+    if (!this.#shown) return;
+    const p = platformOf(this.caps);
+    const k = readKey(p, key);
+    if (k !== undefined && k !== "Escape" && this.#level().some((it) => readKey(p, it.key ?? "") === k)) return;
+    this.#shown = false;
+  }
+
+  /**
+   * The menu the program keeps on the screen it is on (`a=menu`, SPEC
+   * §10.7), undefined when it has none: the program sent none or an empty
+   * `a=menu`, or it was the alternate screen's and the program left it, or
+   * a reset. A host without the feature `menu` answers `a=menu` EINVAL.
+   */
+  menu(): MenuTree | undefined {
+    return this.#menus[this.#screen()];
+  }
+
+  /**
+   * The level of the menu that the host shows (`a=menu:show=1`, SPEC
+   * §10.7): the items of the group the program's keys reach that have a
+   * key, in order. Empty when no level shows: the program showed none or
+   * hid it, or the user's Escape or a key the level does not list hid it,
+   * or the keys reach no group, or no item there has a key.
+   */
+  shown(): MenuItem[] {
+    return this.#level();
+  }
+
+  /**
+   * Picks the item of the program's menu named name, as a palette would
+   * (SPEC §10.7): the program hears a `command` event with that name. The
+   * first item so named, depth first, is the one. It sends nothing, and
+   * returns false, for an item that is not enabled, a name no item has, or
+   * no menu.
+   */
+  pick(name: string): boolean {
+    const it = menuFind(this.#menus[this.#screen()], name);
+    if (!it || it.enabled === false) return false;
+    this.#reply(encode([["a", "ev"], ["e", "command"]], pack({ name }, DETAIL.get("command"))));
+    return true;
+  }
+
+  /**
+   * The name of the surface whose keys all reach the program since a key its
+   * keymap binds to `prefix` (SPEC §10.5), until the program sends `a=focus`
+   * or `a=blur`, the surface loses the keyboard, or the user focuses an
+   * element of it with a press; "" when none.
+   */
+  get prefix(): string {
+    return this.#prefix !== undefined && this.#prefix === this.#keyboard ? this.#prefix.name : "";
   }
 
   // --- inspection ---------------------------------------------------------------
@@ -1477,10 +1721,23 @@ function ctlString(m: Message): string {
   return [...m.control].map(([k, v]) => `${k}=${v}`).join(":");
 }
 
-// A drag event's detail: the cell, the modifier keys in SPEC §9.1's order,
-// and the step along each axis the element counts, and t.
-function dragDetail(d: Drag, c: number, r: number, keys: string[]) {
-  const detail: Record<string, unknown> = { c, r, keys: ["shift", "ctrl", "alt", "meta"].filter((k) => keys.includes(k)) };
+// The modifier keys held ("shift", "alt", "ctrl", "meta"), as the bits of
+// a detail's mods (SPEC §9).
+function modBits(keys: readonly string[]): number {
+  let bits = 0;
+  if (keys.includes("shift")) bits |= MOD_SHIFT;
+  if (keys.includes("alt")) bits |= MOD_ALT;
+  if (keys.includes("ctrl")) bits |= MOD_CONTROL;
+  if (keys.includes("meta")) bits |= MOD_META;
+  return bits;
+}
+
+// A drag event's detail: the cell, the modifier keys held as bits (left out
+// when none is), and the step along each axis the element counts, and t.
+function dragDetail(d: Drag, c: number, r: number, keys: readonly string[]) {
+  const detail: Record<string, unknown> = { c, r };
+  const mods = modBits(keys);
+  if (mods !== 0) detail.mods = mods;
   if (d.n[0] > 0) detail.x = d.x;
   if (d.n[1] > 0) detail.y = d.y;
   if (d.tn[0] > 0) detail.tx = d.tx;
@@ -1529,4 +1786,14 @@ function resolve(s: Surface, a: El): string {
 function areaOf(s: Surface, id: string): { area?: Area } {
   const a = id === "" ? undefined : s.areas.get(id);
   return a ? { area: { ...a } } : {};
+}
+
+// Whether two values are the same: by content, a map's order apart.
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  return ka.length === kb.length && ka.every((k) => same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
 }

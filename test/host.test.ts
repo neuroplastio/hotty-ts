@@ -8,17 +8,25 @@
 import assert from "node:assert/strict";
 
 import {
+  attr,
+  blur,
   DEFAULT_MAX,
   Decoder,
+  delta,
   doc,
   encode,
   Float,
   focus,
+  menu,
+  menuHide,
+  menuShow,
   morphTo,
   place,
   placeAt,
   query,
+  remove,
   res,
+  text,
   SCROLL_HORIZONTAL,
   SCROLL_VERTICAL,
   unpack,
@@ -106,24 +114,21 @@ describe("Host scroll and area", () => {
   const events = (h: Host) =>
     h.events().map((e) => [e.kind, e.target, e.area() ?? null] as const);
 
-  test("a document's scroll axes are its own; a host without scroll ignores them", () => {
+  test("a document's scroll axes are its own (SPEC §5.1)", () => {
     const h = new Host();
     h.write(doc("s", "<ul><li>a</li></ul>", { scroll: SCROLL_VERTICAL | SCROLL_HORIZONTAL }) + place("s", { cols: 10, rows: 2 }));
     assert.equal(h.surface("s")!.scroll, 3);
-    assert.equal(h.caps.scroll, true);
     h.write(doc("s", "<p>b</p>"));
     assert.equal(h.surface("s")!.scroll, 0, "a new document without it does not scroll");
     h.write(doc("s", "<p>b</p>", { scroll: 4 }));
     assert.equal(h.surface("s")!.scroll, 0, "anything but 1, 2 or 3 does not scroll");
-    const old = new Host({ caps: { scroll: false } });
-    old.write(doc("s", "<p>c</p>", { scroll: SCROLL_VERTICAL }));
-    assert.equal(old.surface("s")!.scroll, 0);
-    assert.equal(old.caps.scroll, false);
+    h.write(doc("s", "<p>c</p>", { scroll: SCROLL_HORIZONTAL }));
+    assert.equal(h.surface("s")!.scroll, 2);
   });
 
   test("a double click is a click, then a click whose count is 2 (SPEC §9)", () => {
     const h = new Host();
-    assert.equal(h.caps.count, true);
+    assert.equal(h.caps.has("count"), true);
     h.write(doc("f", `<button id=open value=x>Open</button><a href="/doc" id=l>doc</a>`) + place("f", { cols: 20, rows: 2 }));
     h.doubleClick("f", "open");
     h.doubleClick("f", "l");
@@ -131,6 +136,11 @@ describe("Host scroll and area", () => {
       h.events().filter((e) => e.kind === "click").map((e) => [e.target, e.count()]),
       [["open", 1], ["open", 2], ["l", 1], ["l", 2]],
     );
+    // Without the feature count, every click reads as the first of its run.
+    const plain = new Host({ caps: { features: ["hover"] } });
+    plain.write(doc("f", `<button id=open>Open</button>`) + place("f", { cols: 20, rows: 2 }));
+    plain.doubleClick("f", "open");
+    assert.deepEqual(plain.events().filter((e) => e.kind === "click").map((e) => e.count()), [1, 1]);
   });
 
   test("the host reports the limit it decodes a message with, and drops a message past it (SPEC §13)", () => {
@@ -170,31 +180,30 @@ describe("Host bodies", () => {
   const typed = (payload: Uint8Array) => unpack(payload, { floats: true }) as Record<string, unknown>;
 
   test("the capabilities and an error are msgpack maps, each field of its type: scale a float even when whole, and a field with nothing in it left out (SPEC §3.3, §4)", () => {
-    const h = new Host({ caps: { scale: 2, host: undefined, later: [1, 0.5] } });
+    const h = new Host({ caps: { scale: 2, cellcss: { w: 4.5, h: 9 }, host: undefined, later: [1, 0.5] } });
     h.write(query(1) + focus("nope", "", { n: 2 }));
     const [q, err] = h.replies();
     const body = typed(q!.payload);
-    assert.equal(body.v, "0.2");
+    assert.equal(body.v, "0.3");
     assert.deepEqual(body.scale, new Float(2));
-    assert.deepEqual(body.cell, { w: 9, h: 18 });
+    assert.deepEqual(body.cellcss, { w: new Float(4.5), h: new Float(9) });
+    assert.deepEqual(body.features, ["hover", "count", "menu"]);
     assert.deepEqual(body.later, [1, new Float(0.5)]);
     assert.ok(!("host" in body));
     const caps = q!.reply()!.caps()!;
-    assert.deepEqual([caps.v, caps.scale, caps.cellCss(), caps.raw.later], ["0.2", 2, { w: 4.5, h: 9 }, [1, 0.5]]);
+    assert.deepEqual([caps.v, caps.scale, caps.cellCss, caps.raw.later], ["0.3", 2, { w: 4.5, h: 9 }, [1, 0.5]]);
+    assert.deepEqual([caps.has("menu"), caps.has("passthrough")], [true, false]);
     assert.deepEqual(typed(err!.payload), { code: "ENOENT", detail: "no surface nope" });
     assert.deepEqual([err!.reply()!.code, err!.reply()!.detail], ["ENOENT", "no surface nope"]);
   });
 
-  test("an event's detail goes out as its kind's type: a resize's size as floats, a fit's rows as an int; a Float is a float in any field (SPEC §9)", () => {
+  test("an event's detail goes out as its kind's type: a fit's rows as an int; a Float is a float in any field (SPEC §9)", () => {
     const h = new Host();
     h.write(doc("s", "<p>x</p>") + placeAt("s", 0, 0, { cols: 10, rows: 1 }));
-    h.emit("s", "resize", "", { w: 320, h: 48.5 });
     h.emit("s", "fit", "", { r: 3 });
     h.emit("s", "fit", "", { r: new Float(3) });
     h.emit("s", "later", "x", { n: 2, f: 2.5, g: new Float(1), none: null });
-    const [resize, fit, fitFloat, later] = h.events();
-    assert.deepEqual(typed(resize!.message.payload), { w: new Float(320), h: new Float(48.5) });
-    assert.deepEqual(resize!.size(), { w: 320, h: 48.5 });
+    const [fit, fitFloat, later] = h.events();
     assert.deepEqual(typed(fit!.message.payload), { r: 3 });
     assert.equal(fit!.fitRows(), 3);
     // A count of rows sent as a float does not decode, and the event stands.
@@ -315,7 +324,7 @@ describe("Host keys", () => {
     h.key("Enter");
     assert.deepEqual(sent(h), [
       'ev change t=notes {"value":"h\\ni"}',
-      'ev submit t=f {"name":"Ad A","notes":"h\\ni","ok":"yes","size":"small"}',
+      'ev submit t=f {"fields":[["name","Ad A"],["notes","h\\ni"],["ok","yes"],["size","small"]]}',
     ]);
 
     // Escape is never the surface's.
@@ -374,7 +383,7 @@ describe("Host keys", () => {
     old.becomeHost();
     assert.deepEqual(
       old.replies().map((r) => [r.get("a"), r.get("n"), r.reply()!.code, r.reply()!.detail]),
-      [["err", "7", "EVERSION", "0.2"]],
+      [["err", "7", "EVERSION", "0.3"]],
       "answered as any query: one that lists no version is EVERSION",
     );
     const h = new Host({ text: true });
@@ -511,8 +520,8 @@ describe("Host drags with steps", () => {
     "<i id=bad data-on=drag data-steps='2.5'>b</i><i id=other data-on=drag>o</i>" +
     "<i id=max data-on=drag data-steps='1 9007199254740991'>m</i><i id=big data-on=drag data-steps='1 9007199254740992'>g</i>";
 
-  test("a host whose caps say steps reports where in the element the pointer is, as the test gives it: clamped, measured against the element the drag began on, a drag each time it changes (SPEC §9.1)", () => {
-    const h = new Host({ caps: { steps: true } });
+  test("a drag of an element with data-steps says where in it the pointer is, as the test gives it: clamped, measured against the element the drag began on, a drag each time it changes (SPEC §9.1)", () => {
+    const h = new Host();
     h.write(doc("s", doc_) + place("s", { cols: 10, rows: 4 }));
     h.take();
     h.dragStartStep("s", "track", 0, 0, 3, 9);
@@ -523,12 +532,12 @@ describe("Host drags with steps", () => {
     h.dragMove("other", 5, 3); // a move with no step keeps the last
     h.dragEndStep("", -4, 3, -1, 0);
     assert.deepEqual(sent(h), [
-      'ev dragstart t=track {"c":0,"r":0,"keys":[],"x":3}',
-      'ev drag t=track {"c":2,"r":0,"keys":[],"x":5}',
-      'ev drag t= {"c":2,"r":2,"keys":[],"x":5}',
-      'ev drag t= {"c":9,"r":2,"keys":[],"x":20}',
-      'ev drag t=other {"c":5,"r":3,"keys":[],"x":20}',
-      'ev dragend t= {"c":-4,"r":3,"keys":[],"x":0}',
+      'ev dragstart t=track {"c":0,"r":0,"x":3}',
+      'ev drag t=track {"c":2,"r":0,"x":5}',
+      'ev drag t= {"c":2,"r":2,"x":5}',
+      'ev drag t= {"c":9,"r":2,"x":20}',
+      'ev drag t=other {"c":5,"r":3,"x":20}',
+      'ev dragend t= {"c":-4,"r":3,"x":0}',
     ]);
     // Only the axes an element counts; a value that is not one or two whole
     // numbers up to 2^53 − 1 counts none.
@@ -541,25 +550,17 @@ describe("Host drags with steps", () => {
     h.dragStartStep("s", "big", 0, 3, 1, 1);
     h.dragEnd("big", 0, 3);
     assert.deepEqual(sent(h), [
-      'ev dragstart t=pad {"c":0,"r":1,"keys":[],"y":2}',
-      'ev dragend t=pad {"c":0,"r":1,"keys":[],"y":3}',
-      'ev dragstart t=bad {"c":0,"r":2,"keys":[]}',
-      'ev dragend t=bad {"c":0,"r":2,"keys":[]}',
-      `ev dragstart t=max {"c":0,"r":3,"keys":[],"x":1,"y":${2 ** 40}}`,
-      `ev dragend t=max {"c":0,"r":3,"keys":[],"x":1,"y":${2 ** 40}}`,
-      'ev dragstart t=big {"c":0,"r":3,"keys":[]}',
-      'ev dragend t=big {"c":0,"r":3,"keys":[]}',
+      'ev dragstart t=pad {"c":0,"r":1,"y":2}',
+      'ev dragend t=pad {"c":0,"r":1,"y":3}',
+      'ev dragstart t=bad {"c":0,"r":2}',
+      'ev dragend t=bad {"c":0,"r":2}',
+      `ev dragstart t=max {"c":0,"r":3,"x":1,"y":${2 ** 40}}`,
+      `ev dragend t=max {"c":0,"r":3,"x":1,"y":${2 ** 40}}`,
+      'ev dragstart t=big {"c":0,"r":3}',
+      'ev dragend t=big {"c":0,"r":3}',
     ]);
     const steps = h.events().filter((e) => e.kind.startsWith("drag")).map((e) => [e.drag()?.x, e.drag()?.y]);
     assert.deepEqual(steps.slice(0, 2), [[3, undefined], [5, undefined]], "Event.drag() reads the steps");
-  });
-
-  test("a host that does not say steps reports none", () => {
-    const h = new Host();
-    h.write(doc("s", doc_) + place("s", { cols: 10, rows: 4 }));
-    h.take();
-    h.dragStartStep("s", "track", 0, 0, 3, 0);
-    assert.deepEqual(sent(h), ['ev dragstart t=track {"c":0,"r":0,"keys":[]}']);
   });
 });
 
@@ -568,8 +569,8 @@ describe("Host drops", () => {
     "<i id=card data-on=drag>c</i><i id=ada data-on=drop>Ada</i><i id=col data-on=drop data-steps='3 2'>col</i>" +
     "<i id=row data-on='drag click'><b id=pin data-on=drop>p</b></i><i id=knob data-on=drag data-steps=4>k</i>";
 
-  test("a host whose caps say drop takes a drop-only t, never drags it, reports where in a t with steps the pointer is, and a release on a drop-only element inside the one dragged is its click (SPEC §9.1)", () => {
-    const h = new Host({ caps: { drop: true } });
+  test("a host takes a drop-only t, never drags it, reports where in a t with steps the pointer is, and a release on a drop-only element inside the one dragged is its click (SPEC §9.1)", () => {
+    const h = new Host();
     h.write(doc("s", doc_) + place("s", { cols: 10, rows: 6 }));
     h.take();
     h.dragStart("s", "card", 1, 0);
@@ -580,12 +581,12 @@ describe("Host drops", () => {
     h.dragOver("col", 4, 4, 9, 2); // past the count: clamped
     h.dragEndOver("col", 4, 4, 3, 2);
     assert.deepEqual(sent(h), [
-      'ev dragstart t=card {"c":1,"r":0,"keys":[]}',
-      'ev drag t=ada {"c":1,"r":1,"keys":[]}',
-      'ev drag t=col {"c":1,"r":2,"keys":[],"tx":0,"ty":0}',
-      'ev drag t=col {"c":2,"r":3,"keys":[],"tx":1,"ty":1}',
-      'ev drag t=col {"c":4,"r":4,"keys":[],"tx":3,"ty":2}',
-      'ev dragend t=col {"c":4,"r":4,"keys":[],"tx":3,"ty":2}',
+      'ev dragstart t=card {"c":1,"r":0}',
+      'ev drag t=ada {"c":1,"r":1}',
+      'ev drag t=col {"c":1,"r":2,"tx":0,"ty":0}',
+      'ev drag t=col {"c":2,"r":3,"tx":1,"ty":1}',
+      'ev drag t=col {"c":4,"r":4,"tx":3,"ty":2}',
+      'ev dragend t=col {"c":4,"r":4,"tx":3,"ty":2}',
     ]);
     const steps = h.events().filter((e) => e.kind.startsWith("drag")).map((e) => [e.drag()?.tx, e.drag()?.ty]);
     assert.deepEqual(steps.slice(1, 3), [[undefined, undefined], [0, 0]], "Event.drag() reads tx and ty");
@@ -593,32 +594,231 @@ describe("Host drops", () => {
     assert.throws(() => h.dragStart("s", "ada", 1, 1), /no element with an id opts in/);
     h.dragStart("s", "pin", 1, 5);
     h.dragEnd("pin", 1, 5);
-    assert.deepEqual(sent(h), ['ev dragstart t=row {"c":1,"r":5,"keys":[]}', 'ev dragend t=pin {"c":1,"r":5,"keys":[]}', "ev click t=row"]);
+    assert.deepEqual(sent(h), ['ev dragstart t=row {"c":1,"r":5}', 'ev dragend t=pin {"c":1,"r":5}', "ev click t=row"]);
 
     // A t that only opts in to drags has no steps in it.
     h.dragStart("s", "card", 1, 0);
     h.dragOver("knob", 1, 6, 2, 0);
     h.dragEndOver("knob", 1, 6, 3, 0);
     assert.deepEqual(sent(h), [
-      'ev dragstart t=card {"c":1,"r":0,"keys":[]}',
-      'ev drag t=knob {"c":1,"r":6,"keys":[]}',
-      'ev dragend t=knob {"c":1,"r":6,"keys":[]}',
+      'ev dragstart t=card {"c":1,"r":0}',
+      'ev drag t=knob {"c":1,"r":6}',
+      'ev dragend t=knob {"c":1,"r":6}',
     ]);
   });
+});
 
-  test("a host that does not say drop takes no drop-only t and no steps in t", () => {
-    const h = new Host({ caps: { steps: true } });
-    h.write(doc("s", doc_) + place("s", { cols: 10, rows: 6 }));
+describe("Host 0.3", () => {
+  const controls = (h: Host) => h.replies().map((r) => Object.fromEntries(r.control));
+
+  test("a delta is checked whole: a malformed op rejects it all, with its index; a missing target fails its op alone, the others apply (SPEC §6.1)", () => {
+    const h = new Host({ lenient: true });
+    h.write(doc("s", "<p id=a>a</p><p id=b>b</p>") + place("s", { cols: 10, rows: 2 }));
+    const s = h.surface("s")!;
     h.take();
-    h.dragStart("s", "card", 1, 0);
-    h.dragMove("ada", 1, 1);
-    h.dragOver("col", 1, 2, 1, 1);
-    h.dragEnd("col", 1, 2);
-    assert.deepEqual(sent(h), [
-      'ev dragstart t=card {"c":1,"r":0,"keys":[]}',
-      'ev drag t= {"c":1,"r":1,"keys":[]}',
-      'ev drag t= {"c":1,"r":2,"keys":[]}',
-      'ev dragend t= {"c":1,"r":2,"keys":[]}',
+    h.write(delta("s", [text("a", "A"), { op: "frob", target: "a" }, text("b", "B")], { n: 1 }));
+    assert.deepEqual([s.textOf("a"), s.textOf("b")], ["a", "b"], "none applied");
+    h.write(delta("s", [text("a", "A"), remove("nope"), text("b", "B"), remove("also-not")], { n: 2 }));
+    assert.deepEqual([s.textOf("a"), s.textOf("b")], ["A", "B"], "the ops after the failed one still apply");
+    const [bad, missing] = h.replies().map((r) => r.reply()!);
+    assert.deepEqual([bad!.code, bad!.op, bad!.n], ["EINVAL", 1, 1]);
+    assert.deepEqual([missing!.code, missing!.detail, missing!.op, missing!.err()!.op], ["ENOTARGET", "nope", 1, 1]);
+    // An error that is not a delta's names no op.
+    h.write(focus("nope", "", { n: 3 }));
+    assert.equal(h.replies().at(-1)!.reply()!.op, undefined);
+  });
+
+  test("errors only, unless asked: q is 1 without n, 0 with it, and the query is always answered (SPEC §3.5)", () => {
+    const h = new Host({ lenient: true });
+    h.write(query(1));
+    h.write(doc("s", "<p>x</p>") + delta("s", [text("nope", "x")]) + blur("s"));
+    assert.deepEqual(controls(h), [{ a: "ok", n: "1", re: "q" }], "a doc, a delta with q=2 and a blur say nothing");
+    h.write(place("s", { cols: 0 }));
+    h.write(blur("nope", { q: 1 }));
+    assert.deepEqual(controls(h).slice(1), [
+      { a: "err", s: "s", re: "place" },
+      { a: "err", s: "nope", re: "blur" },
     ]);
+    h.write(doc("s", "<p>x</p>", { n: 5 }));
+    assert.deepEqual(controls(h).at(-1), { a: "ok", n: "5", s: "s", re: "doc" });
+  });
+
+  test("p, f and v hold on the surface until the program turns them off (SPEC §5.2)", () => {
+    const h = new Host();
+    h.write(doc("s", "<button id=b>b</button>") + place("s", { cols: 10, rows: 1, press: true, hover: true }));
+    const s = h.surface("s")!;
+    assert.deepEqual([s.press, s.fit, s.hover], [true, false, true]);
+    h.write(place("s", { cols: 10, rows: 1 }));
+    assert.deepEqual([s.press, s.fit, s.hover], [true, false, true], "a placement without them leaves them");
+    h.take();
+    h.press("s", "b");
+    h.write(place("s", { cols: 10, rows: 1, press: false, fit: true }));
+    assert.deepEqual([s.press, s.fit, s.hover], [false, true, true]);
+    assert.throws(() => h.press("s", "b"), /did not ask for presses/);
+  });
+
+  test("events carry mods as bits, and t is absent where no element is meant (SPEC §9)", () => {
+    const { h } = surface("<button id=b>b</button><a id=l href=/x>l</a>");
+    h.write(place("s", { cols: 10, rows: 1, press: true }));
+    h.take();
+    h.click("s", "b", ["shift", "ctrl"]);
+    h.click("s", "b");
+    h.press("s", "", ["meta"]);
+    h.press("s", "");
+    h.click("s", "l", ["alt"]);
+    const got = h.events().map((e) => [e.kind, e.target, e.mods()]);
+    assert.deepEqual(got, [
+      ["press", "b", 5],
+      ["focus", "b", 0],
+      ["click", "b", 5],
+      ["press", "b", 0],
+      ["click", "b", 0],
+      ["press", "", 8],
+      ["press", "", 0],
+    ]);
+    // blur and fit have no t on the wire.
+    h.blur("s");
+    assert.equal(h.events().at(-1)!.message.get("t"), undefined);
+  });
+
+  test("a drag's keys are mods, left out when none is held", () => {
+    const { h } = surface("<i id=d data-on=drag>d</i>");
+    h.take();
+    h.dragStart("s", "d", 1, 1, ["shift"]);
+    h.dragMove("", 2, 1, ["shift", "meta"]);
+    h.dragEnd("", 2, 1);
+    assert.deepEqual(
+      h.events().filter((e) => e.kind.startsWith("drag")).map((e) => [e.kind, e.mods(), e.drag()]),
+      [["dragstart", 1, { c: 1, r: 1 }], ["drag", 9, { c: 2, r: 1 }], ["dragend", 0, { c: 2, r: 1 }]],
+    );
+  });
+
+  test("change tells the program what differs, once it has asked: the empty value for a field that became absent; a zoom alone says nothing (SPEC §4, §9)", () => {
+    const h = new Host();
+    h.change((c) => (c.mod = "Meta"));
+    assert.deepEqual(h.events(), [], "the program has not asked");
+    h.write(query(1));
+    h.take();
+    h.change((c) => {
+      c.mod = "Meta";
+      c.cellcss = { w: 10, h: 20 };
+    });
+    h.change((c) => (c.scale = 2));
+    h.change((c) => {
+      c.edit = { copy: ["Meta+c"] };
+      c.mod = undefined;
+    });
+    h.change((c) => (c.edit = undefined));
+    const changed = h.events().map((e) => e.changed());
+    assert.deepEqual(changed.map((c) => Object.keys(c!.raw)), [["cellcss"], ["scale", "mod", "edit"], ["edit"]]);
+    // The zoom was not told, so the next change tells it with the rest.
+    assert.deepEqual([changed[0]!.cellCss, changed[1]!.raw.mod, changed[1]!.edit, changed[2]!.raw.edit], [{ w: 10, h: 20 }, "", { copy: ["Meta+c"] }, {}]);
+    let folded = h.caps;
+    for (const c of changed) folded = folded.merge(c!);
+    assert.deepEqual([folded.mod, folded.edit, folded.cellCss], [undefined, undefined, { w: 10, h: 20 }]);
+    // The event has no s and no t.
+    assert.deepEqual(Object.fromEntries(h.events()[0]!.message.control), { a: "ev", e: "caps" });
+  });
+
+  test("a new cell size lays the documents out again: a surface that asked for fit may hear it", () => {
+    let rows = 2;
+    const h = new Host({ autoRows: () => rows });
+    h.write(doc("s", "<p>x</p>") + place("s", { cols: 10, rows: 2, fit: true }));
+    h.write(query(1));
+    h.take();
+    rows = 3;
+    h.change((c) => (c.cellcss = { w: 7, h: 14 }));
+    assert.deepEqual(sent(h).filter((l) => l.startsWith("ev fit")), ['ev fit t= {"r":3}']);
+  });
+
+  test("a key the keymap binds to prefix reaches the program, and so does every key after it, until a=focus (SPEC §10.5)", () => {
+    const { h } = surface("<div data-keys='Control+b=prefix'><button id=b>b</button><input id=i></div>");
+    h.write(focus("s", "b"));
+    h.take();
+    assert.equal(h.prefix, "");
+    assert.equal(h.key("Control+b"), false, "the prefix reaches the program");
+    assert.equal(h.prefix, "s");
+    assert.deepEqual([h.key("Enter"), h.key("Tab"), h.key("Escape"), h.key("x")], [false, false, false, false]);
+    assert.equal(h.surface("s")!.focused(), "b", "nothing moved focus");
+    assert.equal(sent(h).join(""), "\x02\r\t\x1bx", "as the terminal sends them");
+    h.write(focus("s"));
+    assert.equal(h.prefix, "");
+    h.take();
+    h.key("Enter");
+    assert.deepEqual(sent(h), ["ev click t=b"], "the keys are the surface's again");
+    // In a text field the prefix is not the field's either.
+    h.write(focus("s", "i"));
+    h.key("Control+b");
+    h.key("a");
+    assert.equal(h.surface("s")!.value("i") ?? "", "");
+    h.click("s", "b");
+    assert.equal(h.prefix, "", "a press that focuses ends it");
+  });
+
+  test("the program's menu, per screen: the level shown, hidden by Escape and by a key it does not list, and picks by name (SPEC §10.7)", () => {
+    const h = new Host();
+    h.write(
+      menu({
+        items: [
+          { key: "Space", label: "Leader", items: [{ key: "f", label: "File", name: "file" }, { key: "q", label: "Quit", name: "quit" }] },
+          { label: "Reload", name: "reload" },
+          { label: "Off", name: "off", enabled: false },
+        ],
+      }),
+    );
+    assert.deepEqual(h.shown(), [], "sending a menu shows nothing");
+    h.write(menuShow());
+    assert.deepEqual(h.shown().map((i) => i.key), ["Space"]);
+    h.write(menuShow(["Space"]));
+    assert.deepEqual(h.shown().map((i) => i.key), ["f", "q"]);
+    h.type("\x1b");
+    assert.deepEqual(h.shown(), [], "Escape hides it");
+    h.write(menuShow(["Space"]));
+    h.key("f");
+    assert.equal(h.shown().length, 2, "a key it lists keeps it");
+    h.key("z");
+    assert.deepEqual(h.shown(), [], "a key it does not list hides it");
+    h.write(menuShow(["Space"]));
+    h.write(menuHide());
+    assert.deepEqual(h.shown(), []);
+    h.write(menuShow(["Nope"]));
+    assert.deepEqual(h.shown(), [], "keys that reach no group show nothing");
+    h.take();
+    assert.equal(h.pick("reload"), true);
+    assert.equal(h.pick("off"), false, "disabled");
+    assert.equal(h.pick("nope"), false);
+    const [cmd] = h.events();
+    assert.deepEqual([cmd!.kind, cmd!.surface, cmd!.target, cmd!.command()], ["command", "", "", { name: "reload", key: "" }]);
+    // The alternate screen keeps its own menu, and leaving drops it.
+    h.write("\x1b[?1049h");
+    assert.equal(h.menu(), undefined);
+    h.write(menu({ items: [{ name: "alt" }] }));
+    assert.equal(h.pick("alt"), true);
+    assert.equal(h.pick("reload"), false);
+    h.write("\x1b[?1049l");
+    assert.equal(h.menu()!.items.length, 3, "the main screen's is back");
+    assert.equal(h.pick("alt"), false);
+    h.write("\x1bc");
+    assert.equal(h.menu(), undefined, "a full reset drops both");
+  });
+
+  test("a host without the feature menu answers a=menu EINVAL; show is 0 or 1", () => {
+    const h = new Host({ caps: { features: ["hover"] }, lenient: true });
+    h.write(menu({ items: [] }, { n: 1 }));
+    assert.deepEqual([h.replies().at(-1)!.reply()!.code, h.errors().length], ["EINVAL", 1]);
+    const m = new Host({ lenient: true });
+    m.write(encode([["a", "menu"], ["show", "2"], ["n", "1"]]));
+    assert.equal(m.replies().at(-1)!.reply()!.code, "EINVAL");
+    m.write(encode([["a", "menu"], ["n", "2"]], new Uint8Array([0xc1])));
+    assert.equal(m.replies().at(-1)!.reply()!.code, "EINVAL", "a body that is no menu");
+  });
+
+  test("without the feature hover the host never says where the pointer is", () => {
+    const h = new Host({ caps: { features: [] } });
+    h.write(doc("s", "<i id=a>a</i>") + place("s", { cols: 10, rows: 1, hover: true }));
+    h.take();
+    h.hover("s", "a", 1, 0);
+    h.unhover();
+    assert.deepEqual(h.events(), []);
   });
 });

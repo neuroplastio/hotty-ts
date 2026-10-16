@@ -4,7 +4,7 @@
 
 import { type DefaultTreeAdapterTypes as T, parse, parseFragment, serialize } from "parse5";
 
-import type { Placement } from "../commands.ts";
+import type { Op, Placement } from "../commands.ts";
 import type { Field } from "../field.ts";
 import type { Area } from "../messages.ts";
 
@@ -219,6 +219,12 @@ export class Surface {
   placed = false;
   /** Its last placement, as the program sent it; rows are the rows the host chose for auto. */
   placement: Placement = { cols: 0 };
+  /** Whether the program asked for presses (`p`): the surface's, not the placement's, and held across placements (SPEC §5.2). */
+  press = false;
+  /** Whether the program asked for fit events (`f`). */
+  fit = false;
+  /** Whether the program asked for hover events (`v`). */
+  hover = false;
   /** With fit: the rows the program last heard (SPEC §5.2). */
   fitRows = 0;
   /** With hover: the element it last heard the pointer is over; undefined: out (SPEC §9.4). */
@@ -402,8 +408,13 @@ export class Surface {
 
   // --- deltas (SPEC §6) ----------------------------------------------------------
 
-  /** Applies a delta, and returns the error code and detail when it cannot. */
-  delta(op: string, target: string, key: string, payload: string): Outcome {
+  /**
+   * Applies one op of a delta (SPEC §6.1), as deltaOf has checked it, and
+   * returns the error code and detail when it cannot. A missing target
+   * fails this op alone.
+   */
+  delta(o: Op): Outcome {
+    const { op, target = "", key = "", value: payload = "" } = o;
     if (op === "morph" && target === "") return this.#morphByIds(payload);
     const t = this.byId(target);
     if (!t) return { code: "ENOTARGET", detail: target };
@@ -473,9 +484,6 @@ export class Surface {
         break;
       case "reveal":
         // It changes no node, and this host lays nothing out: nothing scrolls.
-        if (payload !== "" && payload !== "start" && payload !== "end") {
-          return { code: "EINVAL", detail: "reveal takes start, end or none" };
-        }
         break;
       default:
         return { code: "EINVAL", detail: "unknown op " + op };
