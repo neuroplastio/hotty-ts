@@ -299,8 +299,17 @@ export class Link {
         return;
       }
     }
+    this.#mergeCaps(m);
     for (const t of [...this.#taps]) if (t.message?.(m)) return;
     this.#push({ kind: "message", message: m });
+  }
+
+  // A caps event folds into the capabilities (SPEC §4); it still reaches the
+  // program, which may act on the change.
+  #mergeCaps(m: Message) {
+    const ev = m.event();
+    const changed = ev?.kind === "caps" ? ev.changed() : undefined;
+    if (changed && this.#caps) this.#caps = this.#caps.merge(changed);
   }
 
   #data(b: Uint8Array) {
@@ -498,7 +507,7 @@ export class Link {
     return this.#native;
   }
 
-  /** The host's capabilities, when native. */
+  /** The host's capabilities, when native, kept current by the caps events it has sent since (SPEC §4, {@link Caps.merge}). */
   get caps(): Caps | undefined {
     return this.#caps;
   }

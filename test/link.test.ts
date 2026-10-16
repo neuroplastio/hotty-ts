@@ -53,7 +53,7 @@ describe("Link in a push environment", () => {
     await settle();
     assert.equal(decided, true);
     assert.equal(done, undefined);
-    assert.equal(link.caps?.v, "0.2");
+    assert.equal(link.caps?.v, "0.3");
     await clock.advance(300);
     assert.equal(done, true);
     assert.deepEqual(passed, ["\x1b[?62;22c"], "the environment kept the DA1 it ate");
@@ -205,7 +205,7 @@ describe("Link on a byte stream", () => {
     link.bytes(answer("ok", pack({ v: "0.1" })));
     await settle();
     assert.equal(got.length, 0, "a late error, or another version, is detection's and changes nothing");
-    link.bytes(answer("ok", pack({ v: "0.2", host: "later" })));
+    link.bytes(answer("ok", pack({ v: "0.3", host: "later" })));
     await settle();
     assert.deepEqual(got.map((i) => (i.kind === "host" ? i.caps?.host : i.kind)), ["later"]);
     assert.equal(link.native, true);

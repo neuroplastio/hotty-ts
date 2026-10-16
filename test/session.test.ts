@@ -75,7 +75,7 @@ describe("Session", () => {
     assert.equal(h.surface("a")!.row, 5);
     s.layout([card("a", 0, 5, { z: 1, press: true })]);
     frame();
-    assert.deepEqual([h.surface("a")!.placement.z, h.surface("a")!.placement.press], [1, true], "options changed: placed again");
+    assert.deepEqual([h.surface("a")!.placement.z, h.surface("a")!.press], [1, true], "options changed: placed again");
     // Half scrolled out of a region from row 2 to row 9: its bottom row shows.
     const region = { x: 0, y: 2, w: 80, h: 8 };
     s.layout([card("a", 0, 1, { clip: region })]);
@@ -87,6 +87,48 @@ describe("Session", () => {
     frame();
     assert.equal(h.surface("a"), undefined, "out of view and not kept: deleted");
     assert.deepEqual(s.counts, { docs: 1, places: 4, hides: 0, deletes: 1, relayouts: 0 });
+  });
+
+  test("press, fit and hover belong to the surface: a placement sends one when it turns on or off, and none when it is as it was (SPEC §5.2)", async () => {
+    const { h, s, frame } = await ready();
+    const flags = () =>
+      h.commands().filter((m) => m.get("a") === "place").map((m) => [m.get("p") ?? null, m.get("f") ?? null, m.get("v") ?? null]);
+    s.layout([card("a", 0, 0, { press: true })]);
+    frame();
+    s.layout([card("a", 0, 2, { press: true })]);
+    frame();
+    s.layout([card("a", 0, 2, { press: false, hover: true, fit: true })]);
+    frame();
+    s.layout([card("a", 0, 4, { hover: true })]);
+    frame();
+    assert.deepEqual(flags(), [
+      ["1", null, null], // on
+      [null, null, null], // moved: as it was
+      ["0", "1", "1"], // press off, fit and hover on
+      [null, "0", null], // fit off; hover stays
+    ]);
+    assert.deepEqual([h.surface("a")!.press, h.surface("a")!.fit, h.surface("a")!.hover], [false, false, true]);
+    // A surface deleted and sent again starts from none.
+    s.delete("a");
+    s.layout([card("a", 0, 4, { hover: true })]);
+    frame();
+    assert.deepEqual(flags().at(-1), [null, null, "1"]);
+    assert.equal(h.surface("a")!.hover, true);
+    assert.deepEqual(h.errors(), []);
+  });
+
+  test("the caps events keep the Session's capabilities current, and still reach the program (SPEC §4)", async () => {
+    const { h, s, t, msgs } = await ready();
+    msgs.splice(0);
+    h.change((c) => {
+      c.mod = "Meta";
+      c.cellcss = { w: 10, h: 20 };
+    });
+    await settle();
+    assert.deepEqual([s.caps?.mod, s.caps?.cellCss, t.caps?.mod], ["Meta", { w: 10, h: 20 }, "Meta"]);
+    const ev = msgs.find((m) => m.kind === "event");
+    assert.equal(ev?.kind === "event" && ev.event.kind, "caps");
+    assert.equal(s.caps?.host, "hotty-ts-test", "what did not change stays");
   });
 
   test("a kept surface is hidden, takes deltas, and is placed again without its document", async () => {
@@ -183,7 +225,7 @@ describe("Session", () => {
       const msgs: SessionMessage[] = [];
       const s = new Session({ link, onMessage: (m) => msgs.push(m), late });
       s.detect();
-      link.bytes(eversion + answer("ok", { v: "0.2", host: "later" }));
+      link.bytes(eversion + answer("ok", { v: "0.3", host: "later" }));
       await settle();
       if (!late) {
         assert.deepEqual(msgs, [{ kind: "ready", mode: "text" }], "without late: text, and the host's reply changes nothing");

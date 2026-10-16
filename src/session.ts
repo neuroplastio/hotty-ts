@@ -74,11 +74,18 @@ export interface Want {
   keep?: boolean;
   /** Above (greater) or below the surfaces it overlaps (SPEC §5.2). */
   z?: number;
-  /** Ask for press wherever the user presses in it (SPEC §9). */
+  /**
+   * What the program wants of the surface now: press wherever the user
+   * presses in it (SPEC §9), fit whenever the rows its document needs at
+   * its width change (SPEC §5.2), and hover each time the element under
+   * the pointer changes, and when it leaves (SPEC §9.4). They belong to the
+   * surface on the host (SPEC §5.2), so the Session sends each only when it
+   * differs from what the surface last had: on when it turns on, off when
+   * it turns off, nothing when it is as it was. A surface the host lost, or
+   * the Session deleted, starts again from none.
+   */
   press?: boolean;
-  /** Ask for fit whenever the rows its document needs at its width change (SPEC §5.2). */
   fit?: boolean;
-  /** Ask for hover each time the element under the pointer changes, and when it leaves (SPEC §9.4). */
   hover?: boolean;
   /**
    * The axes the host scrolls the document along itself (SPEC §5.3): a
@@ -86,8 +93,7 @@ export interface Want {
    * not scroll. The wheel, a touchpad, touch and the scrolling keys move
    * it, and the program hears nothing of it; rect is the box it scrolls in.
    * It goes out with the document, so a change sends the document again,
-   * which starts at the top. A host without caps.scroll clips the document
-   * as before: a program that must show the rest there scrolls it by clip.
+   * which starts at the top.
    */
   scroll?: number;
   /**
@@ -160,6 +166,17 @@ export interface SessionOptions {
   late?: boolean;
 }
 
+// A surface's p, f and v as the host has them (SPEC §5.2).
+interface Flags {
+  press: boolean;
+  fit: boolean;
+  hover: boolean;
+}
+
+// The flag that takes a surface's p, f or v from was to now: undefined,
+// which a placement does not send, when it is as it was.
+const changed = (was: boolean, now: boolean): boolean | undefined => (was === now ? undefined : now);
+
 // What the Session last sent for a surface on screen.
 interface Placed {
   at: Rect; // the window's cells
@@ -194,7 +211,11 @@ export class Session {
   readonly link: Link;
   /** What detection found. */
   mode: Mode = "detecting";
-  /** The host's capabilities, when native. */
+  /**
+   * The host's capabilities, when native, kept current by the caps events
+   * it has sent since ({@link Caps.merge}); the events still reach the
+   * program.
+   */
   caps: Caps | undefined;
   /** The most surfaces to keep; see SessionOptions.limit. */
   limit: number;
@@ -206,6 +227,7 @@ export class Session {
   readonly #onMessage: (m: SessionMessage) => void;
   readonly #late: boolean;
   #placed = new Map<string, Placed>(); // on screen
+  #flags = new Map<string, Flags>(); // the host's p, f and v for each surface sent
   #hasDoc = new Set<string>(); // sent: on screen or hidden
   #scroll = new Map<string, number>(); // the axes each document went out with
   #keep = new Map<string, boolean>();
@@ -241,7 +263,11 @@ export class Session {
         return;
       }
       const ev = i.message.event();
-      if (ev) this.#onMessage({ kind: "event", event: ev });
+      if (ev) {
+        const ch = ev.kind === "caps" && this.mode === "native" ? ev.changed() : undefined;
+        if (ch && this.caps) this.caps = this.caps.merge(ch); // kept current (SPEC §4)
+        this.#onMessage({ kind: "event", event: ev });
+      }
     });
   }
 
@@ -288,6 +314,7 @@ export class Session {
       if (this.#learned === 0 || n < this.#learned) this.#learned = n;
       this.#hasDoc.delete(s);
       this.#placed.delete(s);
+      this.#flags.delete(s);
       this.#refused.add(s);
       this.#onMessage({ kind: "relayout" });
       return;
@@ -301,6 +328,7 @@ export class Session {
       // both again with the next layout.
       this.#hasDoc.delete(s);
       this.#placed.delete(s);
+      this.#flags.delete(s);
       this.#onMessage({ kind: "relayout" });
       return;
     }
@@ -339,7 +367,10 @@ export class Session {
         this.#scroll.set(s.name, scroll);
         this.#refused.delete(s.name);
         // A replaced document keeps its placement (SPEC §5.1).
-        if (!has) this.#placed.delete(s.name);
+        if (!has) {
+          this.#placed.delete(s.name);
+          this.#flags.delete(s.name); // a new surface starts from none
+        }
       }
       const p: Placed = {
         at,
@@ -353,11 +384,21 @@ export class Session {
       };
       const old = this.#placed.get(s.name);
       if (!old || !samePlaced(old, p)) {
+        const have = this.#flags.get(s.name) ?? { press: false, fit: false, hover: false };
         this.send(
-          placeAt(s.name, at.x, at.y, { cols: p.cols, rows: p.rows, window: p.win, z: p.z, press: p.press, fit: p.fit, hover: p.hover }),
+          placeAt(s.name, at.x, at.y, {
+            cols: p.cols,
+            rows: p.rows,
+            window: p.win,
+            z: p.z,
+            press: changed(have.press, p.press),
+            fit: changed(have.fit, p.fit),
+            hover: changed(have.hover, p.hover),
+          }),
         );
         this.counts.places++;
         this.#placed.set(s.name, p);
+        this.#flags.set(s.name, { press: p.press, fit: p.fit, hover: p.hover });
       }
     }
     for (const name of this.#names()) {
@@ -419,6 +460,7 @@ export class Session {
     this.#hasDoc.delete(name);
     this.#scroll.delete(name);
     this.#placed.delete(name);
+    this.#flags.delete(name);
     this.#keep.delete(name);
     this.#seen.delete(name);
   }
@@ -521,6 +563,7 @@ export class Session {
         // A full reset deletes every surface (SPEC §5.4), hidden ones too:
         // the next layout sends their documents again.
         this.#hasDoc.clear();
+        this.#flags.clear();
         this.#refused.clear();
       }
       if (this.#placed.size === 0) return;
