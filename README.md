@@ -85,8 +85,8 @@ leaves them as they were. A `Session` sends each only when it changes.
 A reply to a delta names the op that failed by its index (`reply.op`). A
 program that can do things sends them as a menu tree (`menu`), shows the
 level its keys reach (`menuShow(["Space", "f"])`) and hides it (`menuHide`),
-and a pick from the host's palette reaches it as a `command` event with the
-item's `name`. A host asks of its capabilities `caps.has("menu")`, and of a
+and a pick, from a multiplexer's palette or an agent, reaches it as a
+`command` event with the item's `name`. A host asks of its capabilities `caps.has("menu")`, and of a
 host's `caps` event `caps.merge(ev.changed())`; the `Terminal`, the `Link`
 and the `Session` keep their `caps` current that way.
 
