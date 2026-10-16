@@ -54,7 +54,8 @@ export interface EncodeOptions {
 
 /**
  * One command: the control and the payload, base64-encoded and split into
- * chunks of at most 4096 bytes (SPEC §3.3, §3.4). Keys go out in order, as
+ * chunks of at most 4096 bytes (SPEC §3.3, §3.4); the first carries the
+ * control, a further one only `m`. Keys go out in order, as
  * they are, but a given `o` or `m`, which are Encode's own (SDK.md §3.3);
  * each character a value may not hold becomes `_`. A string payload is
  * UTF-8.
@@ -76,13 +77,11 @@ export function encode(control: ControlLike, payload?: Uint8Array | string, opti
   const b64 = toBase64(body);
 
   const parts: string[] = [];
-  let quiet: string | undefined;
   for (const [k, v] of Control.from(control)) {
     // o and m are Encode's: it marks compression and chunks itself.
     if (k === "o" || k === "m") continue;
     const value = cleanValue(v);
     parts.push(k + "=" + value);
-    if (k === "q") quiet = value;
   }
   if (zipped) parts.push("o=z");
   const ctl = parts.join(":");
@@ -96,7 +95,7 @@ export function encode(control: ControlLike, payload?: Uint8Array | string, opti
       continue;
     }
     const more = i + CHUNK >= b64.length ? "0" : "1";
-    out += PREFIX + "m=" + more + (quiet !== undefined ? ":q=" + quiet : "") + ";" + piece + ST;
+    out += PREFIX + "m=" + more + ";" + piece + ST;
   }
   return out;
 }

@@ -32,8 +32,8 @@ function runtime(): Zlib | null {
   if (!z) return null;
   const node = z;
   return {
-    // The fastest level, as hotty-go and the Python client compress.
-    deflate: (data) => plain(node.deflateSync(data, { level: 1 })),
+    // zlib's default level, 6, as hotty-go compresses (SDK.md §3.3).
+    deflate: (data) => plain(node.deflateSync(data, { level: 6 })),
     inflate: (data, max) => plain(node.inflateSync(data, max === undefined ? {} : { maxOutputLength: max })),
   };
 }

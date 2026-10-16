@@ -43,11 +43,9 @@ function parseControl(s: string): Map<string, string> | undefined {
   return out;
 }
 
-/** A further chunk's control: `m`, and `q` at most (SPEC §3.4). */
+/** A further chunk's control: `m` alone (SPEC §3.4). */
 function continuation(ctl: Map<string, string>): boolean {
-  if (!ctl.has("m")) return false;
-  for (const k of ctl.keys()) if (k !== "m" && k !== "q") return false;
-  return true;
+  return ctl.size === 1 && ctl.has("m");
 }
 
 const fed = (result: "not_hotty" | "partial" | "invalid"): Fed => ({ result });
