@@ -1,10 +1,9 @@
 // Progress shows a task's progress as a bar that moves in place, and leaves
 // its last state in the scrollback.
 //
-// It shows the cheap way to change a surface many times a second: a custom
-// property moves the bar (setVar) and text deltas change the labels
-// (setText), a few dozen bytes each, in synchronized output so that the
-// host shows them together (SPEC §6). Where the terminal is not a HOTTY
+// It shows the cheap way to change a surface many times a second: one delta
+// whose ops move the bar (a custom property) and change the labels (text),
+// a few dozen bytes each, which the host shows together (SPEC §6.1). Where the terminal is not a HOTTY
 // host, the line is redrawn with a carriage return; into a pipe, a line per
 // step.
 //
@@ -15,7 +14,7 @@
 
 import { parseArgs } from "node:util";
 
-import { setAttr, setText, setVar, sync } from "../src/index.ts";
+import { attr, delta, text, varOp } from "../src/index.ts";
 import { NoTerminalError, Terminal } from "../src/terminal.ts";
 
 export interface Env {
@@ -53,10 +52,10 @@ async function bar(t: Terminal): Promise<View> {
   return {
     step(done, total, name) {
       const pct = Math.floor((done * 100) / total);
-      t.send(sync(setVar(s, "fill", "p", pct), setText(s, "label", name), setText(s, "pct", `${pct}%`)));
+      t.send(delta(s, [varOp("fill", "p", pct), text("label", name), text("pct", `${pct}%`)]));
     },
     async end(_done, total, took) {
-      t.send(sync(setText(s, "label", `${total} files in ${took} ms`), setAttr(s, "row", "class", "row done")));
+      t.send(delta(s, [text("label", `${total} files in ${took} ms`), attr("row", "class", "row done")]));
       // Read the host's replies before the shell does.
       await t.fence().catch(() => []);
     },

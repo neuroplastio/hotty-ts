@@ -7,10 +7,11 @@ user does in them. It follows the hotty repository's SDK.md: the same two
 layers, names and defaults as the other SDKs, and every SDK section of the
 conformance vectors.
 
-It speaks HOTTY 0.2: a host's replies and events carry msgpack bodies
-(SPEC §3.3), and its query lists the version it speaks (`a=q:n=1:v=0.2`,
-SPEC §4). A terminal of another HOTTY version, a 0.1 one included, is no
-host to it, and the program draws in cells.
+It speaks HOTTY 0.3: a host's replies and events carry msgpack bodies
+(SPEC §3.3), and its query lists the version it speaks (`a=q:n=1:v=0.3`,
+SPEC §4). A terminal of another HOTTY version, a 0.2 one included, is no
+host to it, and the program draws in cells. Moving a program from 0.2 is
+CHANGES.md's "Upgrading from 0.2" in the hotty repository.
 
 The package is `@neuroplastio/hotty`. It is not published yet: the first
 release will be 0.1.0, once the repository is public.
@@ -53,7 +54,7 @@ h.surface("hello-hello")?.text(); // "Hello, HTML in the terminal."
 
 | import | what it is | SDK.md |
 | --- | --- | --- |
-| `@neuroplastio/hotty` | the wire layer: builders, `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, `unpack` for msgpack, and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
+| `@neuroplastio/hotty` | the wire layer: builders (with the op builders `text`, `attr`, `varOp`, … and the menu's), `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, `unpack` for msgpack, what a host or a relay reads of a program's commands (`deltaOf`, `menuOf`, `menuShowOf`, `menuLevelOf`, `menuFind`), and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
 | `@neuroplastio/hotty/field` | `Field`, a text field's value, caret and selection edited by SPEC §10.2's actions, for a program that draws its fields in cells | §4.6 |
 | `@neuroplastio/hotty/terminal` | `Terminal`, for a program with a terminal: one that prints documents and exits, asks a question, or streams a chart | §4.1 |
 | `@neuroplastio/hotty/session` | `Session`, for a UI framework's adapter: modes, layout, relayout, limits, messages | §4.3 |
@@ -63,6 +64,31 @@ h.surface("hello-hello")?.text(); // "Hello, HTML in the terminal."
 Only `@neuroplastio/hotty/test` has a dependency. The rest uses the runtime's
 own modules (`node:fs`, `node:tty`, `node:zlib`), which Node and Bun both have,
 and reads msgpack with its own decoder (below).
+
+## Deltas, flags and menus
+
+A frame's changes to a surface go out as one delta, a list of ops that the
+host applies in order and shows as one (SPEC §6.1). The op builders make
+the ops; the one-op helpers (`setText`, `setAttr`, `setVar`, `removeAttr`,
+`morphTo`, `reveal`) stay for a single change:
+
+```ts
+import { delta, menu, menuHide, menuShow, text, varOp } from "@neuroplastio/hotty";
+
+t.send(delta("app-bar", [varOp("fill", "p", 40), text("label", "40 of 100")]));
+```
+
+`press`, `fit` and `hover` of a placement are `true`, `false` or absent: they
+belong to the surface (SPEC §5.2), and a placement that leaves them out
+leaves them as they were. A `Session` sends each only when it changes.
+
+A reply to a delta names the op that failed by its index (`reply.op`). A
+program that can do things sends them as a menu tree (`menu`), shows the
+level its keys reach (`menuShow(["Space", "f"])`) and hides it (`menuHide`),
+and a pick from the host's palette reaches it as a `command` event with the
+item's `name`. A host asks of its capabilities `caps.has("menu")`, and of a
+host's `caps` event `caps.merge(ev.changed())`; the `Terminal`, the `Link`
+and the `Session` keep their `caps` current that way.
 
 ## A framework's adapter
 
@@ -125,7 +151,7 @@ test host (`test/examples.test.ts`):
 | example | what it shows |
 | --- | --- |
 | [`hello`](examples/hello.ts) | open, detect, `lineStart`, `print`, `fence`: the smallest program |
-| [`progress`](examples/progress.ts) | a bar moved by `setVar` and `setText` in `sync`; three renditions: surface, cells, pipe |
+| [`progress`](examples/progress.ts) | a bar moved by one delta of `varOp` and `text` ops; three renditions: surface, cells, pipe |
 | [`ask`](examples/ask.ts) | a form that takes the keyboard and reports a submit, then a detached summary in its place |
 | [`board`](examples/board.ts) | a full-screen program on a `Session` under its own renderer: layout, deltas, relayout, clicks and keys |
 
@@ -140,21 +166,26 @@ document models are the program's, as SDK.md §1 has it.
 
 The names are Appendix A's TypeScript column: `placeAt`, `setText`, `reveal`,
 `delRes`, `del` (`delete` is a reserved word), `fitRows`, `cellCss`, and on
-`Event` and `Caps` `view()` and `views()`. Options are
+`Event` `view()`, and on `Caps` `has(feature)`. The op builders are `morph`,
+`inner`, `replace`, `append`, `prepend`, `before`, `after`, `remove`, `attr`,
+`unattr`, `text`, `varOp` and `revealOp`; an `Op` is `{ op, target, key,
+value }`, and a menu is `{ label, items }` of `{ key, label, name, enabled,
+items }`. Options are
 objects: `doc(s, html, { detached: true, q: 0 })`, `place(s, { cols, rows,
 keepCursor })`.
 
-- **Absence** is `undefined`: a reply's `code`, an event's `fields()`, a
-  `Caps` field the host left out.
+- **Absence** is `undefined`: a reply's `code` and `op`, an event's
+  `fields()`, a `Caps` field the host left out. A submit's `fields()` are
+  pairs, `[name, value][]`; `mods()` is the modifier bits (`MOD_SHIFT`, …).
 - **Versions.** The query lists the version the SDK speaks, `VERSION`
-  (`a=q:n=1:v=0.2`, SPEC §4), and detection takes the terminal for a host
+  (`a=q:n=1:v=0.3`, SPEC §4), and detection takes the terminal for a host
   only when it answers with capabilities that decode and name it. Any other
   answer to the query, an error (`EVERSION` from a host of other versions,
   or another code) or capabilities it cannot read (a 0.1 host's JSON) or of
   another version, is text at once, done with the DA1 behind it: `detect()`
   is false, `caps` absent, and the reply, detection's, never reaches the
   input. With `late`, only a reply that makes the terminal a host is the
-  late answer. The test host speaks 0.2 only, and answers a query that does
+  late answer. The test host speaks 0.3 only, and answers a query that does
   not list it with `EVERSION`.
 - **Errors** are exceptions: `HottyError` (from `reply.err()`), and
   `NoAnswerError` when a request or a fence gets no answer in time, which
@@ -198,22 +229,23 @@ keepCursor })`.
 ## Conformance
 
 The vectors are the hotty repository's `conformance/vectors.json`, of
-version 0.2, copied to `test/testdata`, and checked against a checkout of
+version 0.3, copied to `test/testdata`, and checked against a checkout of
 hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 
 - **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan`, `detect`,
   `keys`, `keymap` and `edit` all run, and none is skipped: the runner
   declares every `requires`. Characters are grapheme clusters, from
   `Intl.Segmenter`, which Node and Bun both have (`graphemes`).
-- **Host section.** The test host runs the commands, the inspections and
-  the keys of the host vectors (`Host.key`, SPEC §10.2). It lays nothing
-  out, so the rows it gives `r=auto` are an estimate and are not checked,
-  and an event's `area` is not either; `reveal` answers as a host does and
-  scrolls nothing, and `view` is not in its `events`. The vectors' pointer
-  steps (drags, presses, hover), the keys of a vector that has them or that
-  requires something (scrolling), and the events that follow from a layout
-  (`view` among them), are not run: a vector whose every check is in such
-  steps is reported as skipped.
+- **Host section.** The test host runs the commands, the inspections, the
+  keys and the menu steps of the host vectors (`Host.key`, `Host.shown`,
+  `Host.pick`). It has the features `hover`, `count` and `menu`, and lays
+  nothing out, so the rows it gives `r=auto` are an estimate and are not
+  checked, and an event's `area` is not either; `reveal` answers as a host
+  does and scrolls nothing, and it sends no `view`. It skips the vectors
+  that require `scroll`, `steps`, `drop`, `view`, `touch`, `undo`,
+  `passthrough` or `commands` (SDK.md §4.4). The vectors' pointer steps
+  (drags, presses, hover) and the events that follow from a layout are not
+  run: a vector whose every check is in such steps is reported as skipped.
   An event's detail is compared each value of its type: the vectors' floats
   are read as `Float`s, as `unpack` gives a body's. A reply's `types` is
   checked by reading its body as that type, as `Reply` and `Caps` read one,

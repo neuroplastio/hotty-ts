@@ -57,7 +57,7 @@ async function askSurface(t: Terminal): Promise<Answers | undefined> {
     if (r && !r.ok) throw r.err()!;
     const ev = i.message.event();
     if (ev?.surface === name && ev.kind === "submit") {
-      answers = ev.fields();
+      answers = Object.fromEntries(ev.fields() ?? []); // pairs, in order: this form has a field a name
       break;
     }
   }
