@@ -12,7 +12,7 @@ export const MAX_NAME = 64;
  * The protocol version this SDK speaks (SPEC §4): its query lists it, and a
  * host's capabilities must name it for the SDK to use the host.
  */
-export const VERSION = "0.3";
+export const VERSION = "0.4";
 
 /** Which replies the host sends for a command (SPEC §3.5). */
 export type Quiet = 0 | 1 | 2;
@@ -60,7 +60,7 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 
 /**
  * The optional features a host may have (SPEC §4), as its capabilities list
- * them ({@link Caps.has}). Everything else a 0.3 host does.
+ * them ({@link Caps.has}). Everything else a 0.4 host does.
  */
 export const FEATURES = ["passthrough", "hover", "count", "menu"] as const;
 /** One of {@link FEATURES}. */
@@ -70,10 +70,10 @@ export type Feature = (typeof FEATURES)[number];
 export const MOD_SHIFT = 1;
 /** Alt held, in an event's `mods` (SPEC §9). */
 export const MOD_ALT = 2;
-/** Control held, in an event's `mods` (SPEC §9). */
-export const MOD_CONTROL = 4;
-/** Meta held, in an event's `mods` (SPEC §9). */
-export const MOD_META = 8;
+/** Ctrl held, in an event's `mods` (SPEC §9). */
+export const MOD_CTRL = 4;
+/** Super held, in an event's `mods` (SPEC §9). */
+export const MOD_SUPER = 8;
 
 /** The delta operations (SPEC §6.1). */
 export const OPS = [

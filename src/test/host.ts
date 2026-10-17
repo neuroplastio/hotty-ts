@@ -2,11 +2,11 @@
 
 import { CAPS, DETAIL, ERROR } from "../bodies.ts";
 import { deltaOf, menuFind, menuLevelOf, menuOf, menuShowOf, type MenuItem, type MenuTree, type Op } from "../commands.ts";
-import { MAX_SIZE, MOD_ALT, MOD_CONTROL, MOD_META, MOD_SHIFT, VERSION } from "../constants.ts";
+import { MAX_SIZE, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER, VERSION } from "../constants.ts";
 import { DEFAULT_MAX, Decoder } from "../decoder.ts";
 import { encode } from "../encode.ts";
 import { Field } from "../field.ts";
-import { decodeKeys, INSERT, parseKey, parseKeymap, platformOf, readKey, resolve as resolveKeymap } from "../keys.ts";
+import { decodeKeys, INSERT, keyText, parseKey, parseKeymap, platformOf, readKey, resolve as resolveKeymap } from "../keys.ts";
 import { type Area, Caps, type CapsBody, type Event, HottyError, type Message } from "../messages.ts";
 import { pack } from "../msgpack.ts";
 import { validName } from "../names.ts";
@@ -26,7 +26,7 @@ import {
   textOf,
   walk,
 } from "./dom.ts";
-import { editingHost, keymaps, keySequence, keyText, splitName, textField, textInput } from "./keys.ts";
+import { editingHost, keymaps, keySequence, splitName, textField, textInput } from "./keys.ts";
 import { Screen } from "./screen.ts";
 
 type El = NonNullable<ReturnType<Surface["byId"]>>;
@@ -824,7 +824,7 @@ export class Host implements AsyncIterable<Uint8Array> {
    * A submit button then submits its form. On a detached surface it does
    * what is local and throws "detached".
    *
-   * keys are the modifier keys held ("shift", "ctrl", "alt", "meta"); the
+   * keys are the modifier keys held ("shift", "ctrl", "alt", "super"); the
    * click carries those held at its release (SPEC §9). A press with Alt is
    * the program's own gesture (SPEC §9.2): the surface hears nothing of it,
    * and the pointer is out of its window.
@@ -1056,9 +1056,11 @@ export class Host implements AsyncIterable<Uint8Array> {
   /**
    * Types a key as the user does, and does with it what SPEC §10.2 has a
    * host do while a surface has the keyboard. The key is named as SPEC §10.4
-   * names it: a W3C UI Events key value after its modifiers, joined by "+":
-   * "a", "A", "Space", "Enter", "Tab", "Shift+Tab", "Backspace",
-   * "ArrowDown", "Escape", "Control+s". Returns whether a surface used it.
+   * names it, once ({@link parseKey}): "a", "shift+a", "space", "enter",
+   * "tab", "shift+tab", "backspace", "arrow_down", "escape", "ctrl+s". A
+   * press has the name the test gives it: a test that wants the physical
+   * name of a key (`ctrl+key_w`) gives that. Returns whether a surface used
+   * it, and throws a TypeError for a name that is no key, `mod` included.
    *
    * Tab and Shift+Tab move focus among the surface's focusable elements in
    * tree order, those with a negative tabindex and those in an inert subtree
@@ -1075,27 +1077,29 @@ export class Host implements AsyncIterable<Uint8Array> {
    * default keymap (Keymap.program): a key it binds to `program` reaches the
    * program, and its other bindings do nothing. The element takes the other
    * keys of its row of the table, unmodified or with Shift only:
-   * - a button, a link, a summary: Space and Enter click it;
-   * - a checkbox or a radio button: Space checks it, Enter submits its form;
+   * - a button, a link, a summary: space and enter click it;
+   * - a checkbox or a radio button: space checks it, enter submits its form;
    * - a date or time input: the keys a text input's default keymap binds,
    *   and characters; the arrows up and down and the page keys are used;
-   * - a select: the arrows, Home and End pick an option, the page keys as far
-   *   as Home and End, a character the next option its label starts, past
+   * - a select: the arrows, home and end pick an option, the page keys as far
+   *   as home and end, a character the next option its label starts, past
    *   disabled ones; a pick sends input (with data-on~=input) and change at
-   *   once. Space and Enter do nothing: this host shows no list.
+   *   once. space and enter do nothing: this host shows no list.
    *
    * With no element focused there is no keymap: the document's `data-keys`
-   * are not read, and every key but Tab is the program's.
+   * are not read, and every key but tab is the program's.
    *
    * Every other key reaches the program, as typed (type) when it has a
-   * terminal encoding here: characters, Enter, Tab, Escape, Backspace, the
-   * arrows and the editing keys, and Control or Alt with a character. So
+   * terminal encoding here: characters, enter, tab, escape, backspace, the
+   * arrows and the editing keys, and ctrl or alt with a character. So
    * does every key while no surface has the keyboard. The host lays nothing
    * out and does not report scroll, so no key scrolls: a key bound to a
    * scroll action goes on as if its keymap did not bind it (SPEC §10.2), and
    * a field's keymap leaves those bindings out.
    */
-  key(key: string): boolean {
+  key(name: string): boolean {
+    const key = parseKey(name);
+    if (key === undefined) throw new TypeError(`${JSON.stringify(name)} is no key name (SPEC §10.4)`);
     this.#menuKey(key);
     const s = this.#keyboard;
     // After a prefix every key reaches the program, whatever is focused
@@ -1108,8 +1112,8 @@ export class Host implements AsyncIterable<Uint8Array> {
 
   #useKey(s: Surface, key: string): boolean {
     const [mods, name] = splitName(key);
-    const shiftOnly = mods.every((m) => m === "Shift");
-    if (name === "Tab" && shiftOnly) {
+    const shiftOnly = mods.every((m) => m === "shift");
+    if (name === "tab" && shiftOnly) {
       this.#tab(s, mods.length > 0);
       return true;
     }
@@ -1136,22 +1140,22 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (!shiftOnly) return false;
     if (textInput(el)) {
       // A date or time input.
-      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown"].includes(name)) return true;
+      if (["arrow_up", "arrow_down", "page_up", "page_down"].includes(name)) return true;
       return this.#fieldKey(s, el, key);
     }
-    if (el.tagName === "select") return this.#selectKey(s, el, name);
+    if (el.tagName === "select") return this.#selectKey(s, el, name, keyText(key));
     if (box(el)) {
-      if (name === " ") this.#toggle(s, el);
-      else if (name === "Enter") {
+      if (name === "space") this.#toggle(s, el);
+      else if (name === "enter") {
         const form = closest(el, (n) => n.tagName === "form");
         if (form) this.#submit(s, form, undefined);
       } else return false;
       return true;
     }
     if (reportsClick(el) && (el.tagName !== "a" || !hyperlink(el))) {
-      if (name !== " " && name !== "Enter") return false;
+      if (name !== "space" && name !== "enter") return false;
       try {
-        this.#click(s, el, false, 1, mods.includes("Shift") ? MOD_SHIFT : 0);
+        this.#click(s, el, false, 1, mods.includes("shift") ? MOD_SHIFT : 0);
       } catch (e) {
         if (!(e instanceof HostError)) throw e; // nothing with an id reports it
       }
@@ -1193,7 +1197,7 @@ export class Host implements AsyncIterable<Uint8Array> {
       return true;
     }
     if (a === "paste") return false;
-    const changed = a === INSERT ? f.type(keyText(parseKey(key)!)) : keys.selects(key) ? f.extend(a) : f.do(a);
+    const changed = a === INSERT ? f.type(keyText(key)!) : keys.selects(key) ? f.extend(a) : f.do(a);
     if (changed) this.#typeInto(s, el, f.value);
     return true;
   }
@@ -1240,7 +1244,7 @@ export class Host implements AsyncIterable<Uint8Array> {
   }
 
   // A key on a select.
-  #selectKey(s: Surface, el: El, name: string): boolean {
+  #selectKey(s: Surface, el: El, name: string, text: string | undefined): boolean {
     const vals: string[] = [];
     const labels: string[] = [];
     walk(el, (o) => {
@@ -1250,19 +1254,19 @@ export class Host implements AsyncIterable<Uint8Array> {
     });
     const i = vals.indexOf(s.valueOf(el));
     let pick = -1;
-    if ([...name].length === 1 && name !== " ") {
+    if (text !== undefined && name !== "space") {
       for (let k = 1; k <= vals.length; k++) {
         const j = (i + k) % vals.length;
-        if (labels[j]!.toLowerCase().startsWith(name.toLowerCase())) {
+        if (labels[j]!.toLowerCase().startsWith(text.toLowerCase())) {
           pick = j;
           break;
         }
       }
-    } else if (name === "ArrowDown") pick = Math.min(i + 1, vals.length - 1);
-    else if (name === "ArrowUp") pick = Math.max(i - 1, 0);
-    else if (name === "Home" || name === "PageUp") pick = 0;
-    else if (name === "End" || name === "PageDown") pick = vals.length - 1;
-    else if (name !== " " && name !== "Enter") return false;
+    } else if (name === "arrow_down") pick = Math.min(i + 1, vals.length - 1);
+    else if (name === "arrow_up") pick = Math.max(i - 1, 0);
+    else if (name === "home" || name === "page_up") pick = 0;
+    else if (name === "end" || name === "page_down") pick = vals.length - 1;
+    else if (name !== "space" && name !== "enter") return false;
     if (pick >= 0 && pick < vals.length && pick !== i) this.#pick(s, el, vals[pick]!);
     return true;
   }
@@ -1280,7 +1284,7 @@ export class Host implements AsyncIterable<Uint8Array> {
   /**
    * Presses a mouse's primary button on the element with an id and starts a
    * drag (SPEC §9.1), at the surface's cell c, r, with the modifier keys
-   * held ("shift", "ctrl", "alt", "meta"; Alt is the program's gesture, as
+   * held ("shift", "ctrl", "alt", "super"; Alt is the program's gesture, as
    * for click). press first, if the surface asked; then dragstart, from the
    * nearest element from it outward with drag in its data-on; then the
    * keyboard, as a click moves it. Throws "no-report", with no drag, if no
@@ -1583,7 +1587,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (!this.#shown) return;
     const p = platformOf(this.caps);
     const k = readKey(p, key);
-    if (k !== undefined && k !== "Escape" && this.#level().some((it) => readKey(p, it.key ?? "") === k)) return;
+    if (k !== undefined && k !== "escape" && this.#level().some((it) => readKey(p, it.key ?? "") === k)) return;
     this.#shown = false;
   }
 
@@ -1721,14 +1725,14 @@ function ctlString(m: Message): string {
   return [...m.control].map(([k, v]) => `${k}=${v}`).join(":");
 }
 
-// The modifier keys held ("shift", "alt", "ctrl", "meta"), as the bits of
+// The modifier keys held ("shift", "alt", "ctrl", "super"), as the bits of
 // a detail's mods (SPEC §9).
 function modBits(keys: readonly string[]): number {
   let bits = 0;
   if (keys.includes("shift")) bits |= MOD_SHIFT;
   if (keys.includes("alt")) bits |= MOD_ALT;
-  if (keys.includes("ctrl")) bits |= MOD_CONTROL;
-  if (keys.includes("meta")) bits |= MOD_META;
+  if (keys.includes("ctrl")) bits |= MOD_CTRL;
+  if (keys.includes("super")) bits |= MOD_SUPER;
   return bits;
 }
 

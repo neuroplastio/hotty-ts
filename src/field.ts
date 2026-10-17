@@ -5,7 +5,7 @@
  * ```ts
  * const keys = resolve({}, false, TERMINAL_KEYS); // the keymap its surfaces get in data-keys
  * const f = new Field({ value: "foo bar" });
- * const a = keys.lookup(key);                   // "delete-word-backward" for Control+w
+ * const a = keys.lookup(key);                   // "delete-word-backward" for ctrl+w
  * if (a === INSERT) f.type(key);
  * else if (a && keys.selects(key)) f.extend(a); // Shift with a move selects
  * else if (a && f.do(a)) report(f.value);       // "foo "

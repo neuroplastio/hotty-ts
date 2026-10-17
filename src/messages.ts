@@ -294,8 +294,8 @@ export class Event {
   }
 
   /**
-   * The modifier keys held, as bits (MOD_SHIFT, MOD_ALT, MOD_CONTROL,
-   * MOD_META): in a click, a press and a drag's events (SPEC §9). 0 when
+   * The modifier keys held, as bits (MOD_SHIFT, MOD_ALT, MOD_CTRL,
+   * MOD_SUPER): in a click, a press and a drag's events (SPEC §9). 0 when
    * none is held, and for any other kind.
    */
   mods(): number {
@@ -434,7 +434,7 @@ const isEmpty = (v: unknown): boolean => {
  * the SDK does not know is in raw.
  */
 export class Caps {
-  /** The protocol version the host answers in (SPEC §4): "0.3", for a host this SDK uses. */
+  /** The protocol version the host answers in (SPEC §4): "0.4", for a host this SDK uses. */
   readonly v: string | undefined;
   /** A cell's size in CSS pixels (SPEC §5.3); undefined when the host did not say. */
   readonly cellCss: { w: number; h: number } | undefined;
@@ -442,7 +442,7 @@ export class Caps {
   readonly scale: number | undefined;
   /** The terminal's colour scheme: "dark" or "light". */
   readonly scheme: string | undefined;
-  /** The modifier Mod stands for in bindings, "Control" or "Meta" (SPEC §10.4). */
+  /** The modifier `mod` stands for in bindings, "ctrl" or "super" (SPEC §10.4). */
   readonly mod: string | undefined;
   /** The optional features the host has (SPEC §4): see {@link Caps.has}. */
   readonly features: string[];
@@ -478,7 +478,7 @@ export class Caps {
 
   /**
    * Whether the host has an optional feature (SPEC §4): `passthrough`,
-   * `hover`, `count` or `menu`. Everything else a 0.3 host does.
+   * `hover`, `count` or `menu`. Everything else a 0.4 host does.
    */
   has(feature: Feature | (string & {})): boolean {
     return this.features.includes(feature);

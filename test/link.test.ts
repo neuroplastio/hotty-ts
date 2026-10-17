@@ -53,7 +53,7 @@ describe("Link in a push environment", () => {
     await settle();
     assert.equal(decided, true);
     assert.equal(done, undefined);
-    assert.equal(link.caps?.v, "0.3");
+    assert.equal(link.caps?.v, "0.4");
     await clock.advance(300);
     assert.equal(done, true);
     assert.deepEqual(passed, ["\x1b[?62;22c"], "the environment kept the DA1 it ate");
@@ -167,7 +167,7 @@ describe("Link on a byte stream", () => {
 
   test("an error to the query, or capabilities it cannot read or of another version, is text at once; the reply and the DA1 behind it are detection's (SPEC §4)", async () => {
     const replies = {
-      EVERSION: answer("err", pack({ code: "EVERSION", detail: "0.3" })),
+      EVERSION: answer("err", pack({ code: "EVERSION", detail: "0.4" })),
       "another error": answer("err", pack({ code: "EINVAL" })),
       "a 0.1 host's JSON": answer("ok", '{"v":"0.1"}'),
       "another version": answer("ok", pack({ v: "0.1" })),
@@ -199,13 +199,13 @@ describe("Link on a byte stream", () => {
     const got: Input[] = [];
     link.listen((i) => got.push(i));
     const native = link.detect();
-    link.bytes(answer("err", pack({ code: "EVERSION", detail: "0.3" })) + DA1);
+    link.bytes(answer("err", pack({ code: "EVERSION", detail: "0.4" })) + DA1);
     assert.equal(await native, false);
-    link.bytes(answer("err", pack({ code: "EVERSION", detail: "0.3" })));
+    link.bytes(answer("err", pack({ code: "EVERSION", detail: "0.4" })));
     link.bytes(answer("ok", pack({ v: "0.1" })));
     await settle();
     assert.equal(got.length, 0, "a late error, or another version, is detection's and changes nothing");
-    link.bytes(answer("ok", pack({ v: "0.3", host: "later" })));
+    link.bytes(answer("ok", pack({ v: "0.4", host: "later" })));
     await settle();
     assert.deepEqual(got.map((i) => (i.kind === "host" ? i.caps?.host : i.kind)), ["later"]);
     assert.equal(link.native, true);

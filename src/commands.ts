@@ -121,7 +121,7 @@ export interface QueryOptions {
 
 /**
  * Asks whether the terminal is a HOTTY host that speaks {@link VERSION},
- * fenced by Primary Device Attributes (SPEC §4): `a=q:n=<n>:v=0.3`. A host
+ * fenced by Primary Device Attributes (SPEC §4): `a=q:n=<n>:v=0.4`. A host
  * replies to the query, numbered n, before the DA1 answer every terminal
  * sends: its capabilities, or EVERSION when it speaks no version the query
  * lists.
@@ -420,7 +420,7 @@ export function menu(tree?: MenuTree, opts?: ReplyOptions): string {
 
 /**
  * Shows the level of the program's menu that the keys typed reach (SPEC
- * §10.7): `keys` names them as SPEC §10.4 does, "Space" and "f" for a leader
+ * §10.7): `keys` names them as SPEC §10.4 does, "space" and "f" for a leader
  * and a group; with none, the top level. A level shows until the program
  * shows another, or {@link menuHide}s it.
  */
@@ -583,7 +583,7 @@ export function menuShowOf(m: Message): string[] {
  * The level of a menu that the keys reach (SPEC §10.7): its items, a
  * group's, for a host to show those that have a key. From the top level,
  * each key enters the first group (an item with items) at the level whose
- * key is that key, compared as {@link readKey} compares: with `Mod` read as
+ * key is that key, compared as {@link readKey} compares: with `mod` read as
  * the platform's. With no keys it is the top level. Undefined when the keys
  * reach no group, or there is no tree.
  */

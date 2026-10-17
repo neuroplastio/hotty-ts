@@ -1,4 +1,4 @@
-// What a host or a relay reads of a program's 0.3 commands, which the SDK
+// What a host or a relay reads of a program's 0.4 commands, which the SDK
 // sections of the vectors do not cover: a delta's ops (SPEC §6.1) and a menu
 // (SPEC §10.7), and the builders that make them.
 
@@ -133,7 +133,7 @@ const tree: MenuTree = {
   label: "Files",
   items: [
     {
-      key: "Space",
+      key: "space",
       label: "Leader",
       items: [
         { key: "f", label: "File", items: [{ key: "n", label: "New", name: "file-new" }, { key: "r", label: "Rename", name: "file-rename", enabled: false }] },
@@ -184,7 +184,7 @@ describe("menu", () => {
   });
 
   test("menuShowOf reads the keys typed; no body, or none in it, is the top level", () => {
-    assert.deepEqual(menuShowOf(received(menuShow(["Space", "f"]))), ["Space", "f"]);
+    assert.deepEqual(menuShowOf(received(menuShow(["space", "f"]))), ["space", "f"]);
     assert.deepEqual(menuShowOf(received(menuShow())), []);
     assert.deepEqual(menuShowOf(received(encode([["a", "menu"], ["show", "1"]], pack({})))), []);
     assert.throws(() => menuShowOf(received(encode([["a", "menu"], ["show", "1"]], pack({ seq: "x" })))), HottyError);
@@ -195,17 +195,17 @@ describe("menu", () => {
   test("menuLevelOf is the level the keys reach, compared as the platform reads them; keys that reach no group reach none", () => {
     const t = menuOf(received(menu(tree)))!;
     const keys = (items: readonly MenuItem[] | undefined) => items?.map((i) => i.key);
-    assert.deepEqual(keys(menuLevelOf(t, {}, [])), ["Space", ""]);
-    assert.deepEqual(keys(menuLevelOf(t, {}, ["Space"])), ["f", "q", ""]);
-    assert.deepEqual(keys(menuLevelOf(t, {}, ["Space", "f"])), ["n", "r"]);
-    assert.equal(menuLevelOf(t, {}, ["Space", "q"]), undefined, "q is an action, not a group");
+    assert.deepEqual(keys(menuLevelOf(t, {}, [])), ["space", ""]);
+    assert.deepEqual(keys(menuLevelOf(t, {}, ["space"])), ["f", "q", ""]);
+    assert.deepEqual(keys(menuLevelOf(t, {}, ["space", "f"])), ["n", "r"]);
+    assert.equal(menuLevelOf(t, {}, ["space", "q"]), undefined, "q is an action, not a group");
     assert.equal(menuLevelOf(t, {}, ["z"]), undefined);
     assert.equal(menuLevelOf(t, {}, ["Hyper+x"]), undefined, "a key that does not parse");
     assert.equal(menuLevelOf(undefined, {}, []), undefined);
-    const mod: MenuTree = { items: [{ key: "Mod+k", items: [{ key: "a", name: "a" }] }] };
-    assert.ok(menuLevelOf(mod, {}, ["Control+k"]), "Mod is Control by default");
-    assert.equal(menuLevelOf(mod, { mod: "Meta" }, ["Control+k"]), undefined, "and a Meta platform has Mod as Meta");
-    assert.ok(menuLevelOf(mod, { mod: "Meta" }, ["Meta+k"]));
+    const mod: MenuTree = { items: [{ key: "mod+k", items: [{ key: "a", name: "a" }] }] };
+    assert.ok(menuLevelOf(mod, {}, ["ctrl+k"]), "mod is ctrl by default");
+    assert.equal(menuLevelOf(mod, { mod: "super" }, ["ctrl+k"]), undefined, "and a super platform has mod as super");
+    assert.ok(menuLevelOf(mod, { mod: "super" }, ["super+k"]));
   });
 
   test("menuFind is the first item of the name, depth first; an item with no name is never found", () => {

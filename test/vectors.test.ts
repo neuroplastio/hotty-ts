@@ -411,6 +411,8 @@ sections("detect", (v) => {
 
 sections("keys", (v) => {
   if ("input" in v) assert.deepEqual(hotty.decodeKeys(v.input).map(nul), v.keys);
+  else if ("text" in v) assert.equal(nul(hotty.keyText(v.key)), v.text);
+  else if ("mod" in v) assert.equal(nul(hotty.readKey({ mod: v.mod }, v.key)), v.canon);
   else assert.equal(nul(hotty.parseKey(v.key)), v.canon);
 });
 
@@ -419,6 +421,7 @@ sections("keymap", (v) => {
     // An element's keymap outside a text field: no default keymap.
     const m = hotty.parseKeymap(v.platform ?? {}, v.keys.join(" "));
     for (const [key, want] of Object.entries(v.program ?? {})) assert.equal(m.program(key), want, key);
+    for (const [key, want] of Object.entries(v.prefix ?? {})) assert.equal(m.prefix(key), want, `prefix ${key}`);
     for (const [key, want] of Object.entries(v.scroll ?? {})) assert.equal(nul(m.scroll(key)), want, key);
     return;
   }
@@ -429,6 +432,7 @@ sections("keymap", (v) => {
   const m = hotty.resolve(v.platform ?? {}, v.multiline, ...(v.terminal_keys ? [hotty.TERMINAL_KEYS] : []), ...v.keys);
   for (const [key, want] of Object.entries(v.lookup)) assert.equal(nul(m.lookup(key)), want, key);
   for (const [key, want] of Object.entries(v.selects ?? {})) assert.equal(m.selects(key), want, `selects ${key}`);
+  for (const [key, want] of Object.entries(v.binds ?? {})) assert.equal(m.binds(key), want, `binds ${key}`);
 });
 
 sections("edit", (v) => {

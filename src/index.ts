@@ -55,6 +55,7 @@ export {
   chars,
   decodeKeys,
   defaultEdit,
+  keyText,
   parseKey,
   parseKeymap,
   platformOf,

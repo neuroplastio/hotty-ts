@@ -1,9 +1,10 @@
 // What the test host needs to take a key as SPEC §10.2 has a host take it:
 // which elements are text fields, the keymap above an element, and a key as
-// a terminal sends it.
+// a terminal sends it (SPEC §10.4).
 
 import type { DefaultTreeAdapterTypes as T } from "parse5";
 
+import { keyText, MODIFIERS } from "../keys.ts";
 import { attr, closest } from "./dom.ts";
 
 type Element = T.Element;
@@ -39,60 +40,58 @@ export function keymaps(el: Element): string[] {
   return values;
 }
 
-/** A key's modifiers and its key value; " " may be written "Space". */
+/** A canonical key as its modifiers and the rest of its name: `["ctrl", "shift"]` and `"arrow_left"` for `ctrl+shift+arrow_left`. */
 export function splitName(key: string): [string[], string] {
-  let parts = key.split("+");
-  if (key === "+") parts = ["+"];
-  else if (key.endsWith("++")) parts = [...key.slice(0, -2).split("+"), "+"];
-  const name = parts.pop()!;
-  return [parts, name === "Space" ? " " : name];
-}
-
-/** The text a key types: its character, without its modifiers. */
-export function keyText(canonical: string): string {
-  if (canonical === "+" || canonical.endsWith("++")) return "+";
-  if (canonical === "Space" || canonical.endsWith("+Space")) return " ";
-  return canonical.slice(canonical.lastIndexOf("+") + 1);
+  const parts = key.split("+");
+  const mods: string[] = [];
+  while (parts.length > 1 && (MODIFIERS as readonly string[]).includes(parts[0]!)) mods.push(parts.shift()!);
+  return [mods, parts.join("+")];
 }
 
 const SEQUENCES: Record<string, string> = {
-  Enter: "\r",
-  Tab: "\t",
-  Escape: "\x1b",
-  Backspace: "\x7f",
-  ArrowUp: "\x1b[A",
-  ArrowDown: "\x1b[B",
-  ArrowRight: "\x1b[C",
-  ArrowLeft: "\x1b[D",
-  Home: "\x1b[H",
-  End: "\x1b[F",
-  Insert: "\x1b[2~",
-  Delete: "\x1b[3~",
-  PageUp: "\x1b[5~",
-  PageDown: "\x1b[6~",
+  enter: "\r",
+  tab: "\t",
+  escape: "\x1b",
+  backspace: "\x7f",
+  arrow_up: "\x1b[A",
+  arrow_down: "\x1b[B",
+  arrow_right: "\x1b[C",
+  arrow_left: "\x1b[D",
+  home: "\x1b[H",
+  end: "\x1b[F",
+  insert: "\x1b[2~",
+  delete: "\x1b[3~",
+  page_up: "\x1b[5~",
+  page_down: "\x1b[6~",
 };
 
-/** A key as a terminal sends it, in the legacy encoding; "" when it has none here. */
+/**
+ * A canonical key as a terminal sends it, in the legacy encoding; "" when
+ * it has none here. A physical key of a character (`key_w`, `digit_1`) is
+ * sent as that character.
+ */
 export function keySequence(key: string): string {
-  const [mods, name] = splitName(key);
+  const [mods, rest] = splitName(key);
   let ctrl = false;
   let alt = false;
   let shift = false;
   for (const m of mods) {
-    if (m === "Control") ctrl = true;
-    else if (m === "Alt") alt = true;
-    else if (m === "Shift") shift = true;
+    if (m === "ctrl") ctrl = true;
+    else if (m === "alt") alt = true;
+    else if (m === "shift") shift = true;
     else return "";
   }
+  const name = /^(?:key|digit)_(.)$/.exec(rest)?.[1] ?? rest;
   let seq = SEQUENCES[name] ?? "";
-  if (name === "Tab" && shift) seq = "\x1b[Z";
+  if (name === "tab" && shift) seq = "\x1b[Z";
   else if (seq !== "") {
     // a named key
-  } else if ([...name].length !== 1) return "";
+  } else if (ctrl && name === "space") seq = "\0";
   else if (ctrl) {
+    if ([...name].length !== 1) return "";
     const c = name.toLowerCase().charCodeAt(0);
     if (c < 0x40 || c > 0x7e) return "";
     seq = String.fromCharCode(c & 0x1f);
-  } else seq = name;
-  return alt ? "\x1b" + seq : seq;
+  } else seq = keyText(shift ? "shift+" + name : name) ?? "";
+  return seq !== "" && alt ? "\x1b" + seq : seq;
 }

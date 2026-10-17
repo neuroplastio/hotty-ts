@@ -76,18 +76,16 @@ function checkEvents(at: string, got: Event[], want: Any[]) {
   });
 }
 
-// A key step's key as SPEC §10.4 names it: the modifiers held, in its order,
-// before the key; Shift left out before a character.
+// A key step's key (a DOM key value) as SPEC §10.4 names it: the modifiers
+// held, in its order, before the key; a space bar is space, a letter small,
+// and Shift left out before a character that is no letter, which it types.
 function keyName(st: Any): string {
   const held = new Set<string>(st.keys ?? []);
   const one = [...st.key].length === 1;
-  const mods = [
-    ["ctrl", "Control"],
-    ["alt", "Alt"],
-    ["meta", "Meta"],
-    ["shift", "Shift"],
-  ].filter(([k]) => held.has(k!) && (k !== "shift" || !one));
-  return mods.map(([, m]) => m + "+").join("") + (st.key === " " ? "Space" : st.key);
+  const letter = one && st.key.toLowerCase() !== st.key.toUpperCase();
+  const mods = ["super", "ctrl", "alt", "shift"].filter((m) => held.has(m) && (m !== "shift" || !one || letter));
+  const key = st.key === " " ? "space" : one ? st.key.toLowerCase() : st.key;
+  return [...mods, key].join("+");
 }
 
 // Presses a key step's key, and checks where it went and the events it made.

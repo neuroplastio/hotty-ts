@@ -15,7 +15,7 @@ const f = new Decoder().feed(doc("card", "<p>hi</p>"));
 assert.equal(f.result, "complete");
 assert.equal(f.message.get("s"), "card");
 assert.equal(f.message.text(), "<p>hi</p>");
-assert.equal(VERSION, "0.3");
+assert.equal(VERSION, "0.4");
 // A frame's changes are one delta, which a host reads back op by op.
 const d = new Decoder().feed(delta("card", [text("a", "hi")]));
 assert.deepEqual(deltaOf(d.message), [{ op: "text", target: "a", value: "hi" }]);
@@ -33,7 +33,7 @@ const h = new Host();
 const t = new Terminal({ input: h, output: h, name: "smoke" });
 assert.ok(t instanceof Link);
 assert.equal(await t.detect(), true);
-assert.deepEqual([t.caps?.v, t.caps?.scale, t.caps?.limits.surfaces], ["0.3", 1, 64]);
+assert.deepEqual([t.caps?.v, t.caps?.scale, t.caps?.limits.surfaces], ["0.4", 1, 64]);
 const s = new Session({ link: t, onMessage: () => {} });
 assert.equal(typeof s.flush(), "string");
 t.print("card", "<p id=m>hi</p>", { cols: 10, rows: 1 });

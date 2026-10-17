@@ -1,12 +1,10 @@
 // What a text field does with a key (SDK.md §3.10; SPEC §10.2, §10.4): key
 // names, the keys in what a terminal sends, and keymaps.
 
-/** The modifier keys, in the order a key's name writes them (SPEC §10.4). */
-export const MODIFIERS = ["Control", "Alt", "Meta", "Shift"] as const;
-/** One of {@link MODIFIERS}, or a binding's `Mod` (SPEC §10.4), which a keymap reads as its platform's. */
-export type Modifier = (typeof MODIFIERS)[number] | "Mod";
-// The modifiers in the order a name writes them: a binding's Mod first.
-const ORDER = ["Mod", ...MODIFIERS] as const;
+/** The modifier keys, in the order a key's name writes them (myelin key names §2; SPEC §10.4). */
+export const MODIFIERS = ["super", "ctrl", "alt", "shift"] as const;
+/** One of {@link MODIFIERS}. */
+export type Modifier = (typeof MODIFIERS)[number];
 
 /** The scroll actions (SPEC §10.2, scrolling keys), which a text field's keymap leaves out. */
 export const SCROLL_ACTIONS = [
@@ -89,26 +87,26 @@ export const INSERT = "insert";
 
 /**
  * The SDK's keymap (SDK.md §3.10), as a `data-keys` value: the keys of
- * Bubble Tea's text input and text area, but Mod+a selects all, as in a
- * GUI field: Control+a on Linux, while on macOS Control+a stays the line's
+ * Bubble Tea's text input and text area, but mod+a selects all, as in a
+ * GUI field: ctrl+a on Linux, while on macOS ctrl+a stays the line's
  * start. A program puts it on an element that holds its fields, and edits
  * its fields in cells with `resolve(platform, multiline, TERMINAL_KEYS)`.
  */
 export const TERMINAL_KEYS = [
-  "ArrowLeft=char-backward Control+b=char-backward ArrowRight=char-forward Control+f=char-forward",
-  "Alt+ArrowLeft=word-backward Control+ArrowLeft=word-backward Alt+b=word-backward",
-  "Alt+ArrowRight=word-forward Control+ArrowRight=word-forward Alt+f=word-forward",
-  "Home=line-start End=line-end Control+e=line-end",
-  "Backspace=delete-char-backward Control+h=delete-char-backward",
-  "Delete=delete-char-forward Control+d=delete-char-forward",
-  "Alt+Backspace=delete-word-backward Control+w=delete-word-backward Control+Backspace=delete-word-backward",
-  "Alt+Delete=delete-word-forward Alt+d=delete-word-forward Control+Delete=delete-word-forward",
-  "Control+u=delete-to-line-start Control+k=delete-to-line-end",
-  "ArrowUp=line-previous Control+p=line-previous ArrowDown=line-next Control+n=line-next",
-  "PageUp=page-up PageDown=page-down",
-  "Alt+<=input-start Control+Home=input-start Alt+>=input-end Control+End=input-end",
-  "Mod+a=select-all",
-  "Control+m=newline",
+  "arrow_left=char-backward ctrl+b=char-backward arrow_right=char-forward ctrl+f=char-forward",
+  "alt+arrow_left=word-backward ctrl+arrow_left=word-backward alt+b=word-backward",
+  "alt+arrow_right=word-forward ctrl+arrow_right=word-forward alt+f=word-forward",
+  "home=line-start end=line-end ctrl+e=line-end",
+  "backspace=delete-char-backward ctrl+h=delete-char-backward",
+  "delete=delete-char-forward ctrl+d=delete-char-forward",
+  "alt+backspace=delete-word-backward ctrl+w=delete-word-backward ctrl+backspace=delete-word-backward",
+  "alt+delete=delete-word-forward alt+d=delete-word-forward ctrl+delete=delete-word-forward",
+  "ctrl+u=delete-to-line-start ctrl+k=delete-to-line-end",
+  "arrow_up=line-previous ctrl+p=line-previous arrow_down=line-next ctrl+n=line-next",
+  "page_up=page-up page_down=page-down",
+  "alt+<=input-start ctrl+home=input-start alt+>=input-end ctrl+end=input-end",
+  "mod+a=select-all",
+  "ctrl+m=newline",
 ].join(" ");
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -120,83 +118,230 @@ export function chars(s: string): string[] {
 
 const codePoints = (s: string) => [...s].length;
 
-// One character, not a control.
+// Each code point's simple case mapping: one that maps to several is left.
+const mapped = (s: string, f: (x: string) => string) =>
+  [...s]
+    .map((x) => {
+      const y = f(x);
+      return codePoints(y) === 1 ? y : x;
+    })
+    .join("");
+const lower = (s: string) => mapped(s, (x) => x.toLowerCase());
+const upper = (s: string) => mapped(s, (x) => x.toUpperCase());
+
+// One character (myelin key names §2.4): its first code point neither a space nor a control.
 function isChar(v: string): boolean {
-  if (v === "" || chars(v).length !== 1) return false;
-  const c = v.codePointAt(0)!;
-  return c >= 0x20 && c !== 0x7f;
+  return v !== "" && chars(v).length === 1 && v[0] !== " " && !/^\p{Cc}/u.test(v);
 }
 
-const NAMED = /^[A-Z][A-Za-z0-9]+$/;
-const isModifier = (m: string): m is Modifier => (ORDER as readonly string[]).includes(m);
+// A capital: a letter whose small form maps back to it.
+const isCapital = (c: string) => codePoints(c) === 1 && lower(c) !== c && upper(lower(c)) === c;
+// A character with case.
+const isLetter = (c: string) => upper(c) !== c || isCapital(c);
 
-// A key's name as its modifiers and its value, or undefined when it does
-// not parse.
-function splitKey(name: string): [Modifier[], string] | undefined {
-  let head: string;
-  let value: string;
-  if (name.endsWith("++") && name.length > 2) {
-    head = name.slice(0, -2);
-    value = "+";
-  } else if (name === "+") {
-    head = "";
-    value = "+";
-  } else {
-    const i = name.lastIndexOf("+");
-    [head, value] = i >= 0 ? [name.slice(0, i), name.slice(i + 1)] : ["", name];
+// The physical keys (myelin key names, Appendix A).
+const PHYSICAL: ReadonlySet<string> = new Set(
+  (
+    "backquote backslash bracket_left bracket_right comma digit_0 digit_1 digit_2 digit_3 digit_4 digit_5 digit_6 " +
+    "digit_7 digit_8 digit_9 equal intl_backslash intl_ro intl_yen key_a key_b key_c key_d key_e key_f key_g key_h " +
+    "key_i key_j key_k key_l key_m key_n key_o key_p key_q key_r key_s key_t key_u key_v key_w key_x key_y key_z " +
+    "minus period quote semicolon slash alt_left alt_right backspace caps_lock context_menu control_left " +
+    "control_right enter meta_left meta_right shift_left shift_right space tab convert kana_mode non_convert " +
+    "delete end help home insert page_down page_up arrow_down arrow_left arrow_right arrow_up num_lock numpad_0 " +
+    "numpad_1 numpad_2 numpad_3 numpad_4 numpad_5 numpad_6 numpad_7 numpad_8 numpad_9 numpad_add numpad_backspace " +
+    "numpad_clear numpad_clear_entry numpad_comma numpad_decimal numpad_divide numpad_enter numpad_equal " +
+    "numpad_memory_add numpad_memory_clear numpad_memory_recall numpad_memory_store numpad_memory_subtract " +
+    "numpad_multiply numpad_paren_left numpad_paren_right numpad_subtract numpad_separator numpad_up numpad_down " +
+    "numpad_right numpad_left numpad_begin numpad_home numpad_end numpad_insert numpad_delete numpad_page_up " +
+    "numpad_page_down escape f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18 f19 f20 f21 f22 f23 " +
+    "f24 f25 fn fn_lock print_screen scroll_lock pause browser_back browser_favorites browser_forward browser_home " +
+    "browser_refresh browser_search browser_stop eject launch_app_1 launch_app_2 launch_mail media_play_pause " +
+    "media_select media_stop media_track_next media_track_previous power sleep audio_volume_down audio_volume_mute " +
+    "audio_volume_up wake_up copy cut paste"
+  ).split(" "),
+);
+// The modifiers' names and aliases, as the default reading takes them.
+const MOD_NAMES: Readonly<Record<string, Modifier>> = {
+  super: "super",
+  cmd: "super",
+  command: "super",
+  ctrl: "ctrl",
+  control: "ctrl",
+  alt: "alt",
+  opt: "alt",
+  option: "alt",
+  shift: "shift",
+};
+// Other keymaps' names for physical keys, which the default reading takes.
+const OTHER: Readonly<Record<string, string>> = {
+  up: "arrow_up",
+  down: "arrow_down",
+  left: "arrow_left",
+  right: "arrow_right",
+  pageup: "page_up",
+  pagedown: "page_down",
+  pgup: "page_up",
+  pgdn: "page_down",
+  esc: "escape",
+};
+const ALIAS = /^<[A-Za-z0-9_-]+>$/;
+
+// A physical key as the default reading takes it: its code value in snake
+// case, or another keymap's name for it.
+function physical(part: string): string | undefined {
+  const low = part.toLowerCase();
+  if (PHYSICAL.has(low)) return low;
+  if (Object.hasOwn(OTHER, low)) return OTHER[low];
+  let out = "";
+  for (let i = 0; i < part.length; i++) {
+    const c = part[i]!;
+    if (!/^[A-Za-z0-9]$/.test(c)) return undefined;
+    if (i > 0 && /^[A-Z0-9]$/.test(c)) out += "_";
+    out += c.toLowerCase();
   }
-  const mods = head ? head.split("+") : [];
-  if (!mods.every(isModifier) || new Set(mods).size !== mods.length) return undefined;
-  if (value === "Space") value = " ";
-  if (!isChar(value) && !NAMED.test(value)) return undefined;
-  return [mods, value];
+  return PHYSICAL.has(out) ? out : undefined;
 }
 
-// The canonical name of a key: modifiers in order, Shift shown in a letter
-// where it can be, Space for a space.
-function keyName(mods: readonly Modifier[], value: string): string {
-  let m = new Set(mods);
-  if (m.has("Shift") && isChar(value) && codePoints(value) === 1) {
-    const up = value.toUpperCase();
-    const low = value.toLowerCase();
-    if (codePoints(up) === 1 && up !== value) {
-      value = up;
-      m = new Set([...m].filter((x) => x !== "Shift"));
-    } else if (codePoints(low) === 1 && low !== value) {
-      m = new Set([...m].filter((x) => x !== "Shift"));
+// A key's name from its modifiers, in order, and its value.
+function join(mods: Iterable<string>, value: string): string {
+  const m = new Set(mods);
+  return [...["mod", ...MODIFIERS].filter((x) => m.has(x)), value].join("+");
+}
+
+// The default reading of a key's name (myelin key names §4.1), `mod`
+// standing for that modifier, or refused when undefined. With `keep`, a
+// key written with `mod` keeps it, first.
+function read(text: string, mod: string | undefined, keep: boolean): string | undefined {
+  if (text === "" || ALIAS.test(text)) return undefined;
+  const parts: string[] = [];
+  for (let i = 0; ; ) {
+    const j = text.indexOf("+", i);
+    if (j < 0) {
+      parts.push(text.slice(i));
+      break;
+    }
+    parts.push(text.slice(i, j));
+    i = j + 1;
+    if (i === text.length) {
+      if (parts[parts.length - 1] !== "") return undefined; // ctrl+, a+
+      break;
     }
   }
-  return [...ORDER.filter((x) => m.has(x)), value === " " ? "Space" : value].join("+");
+  const mods = new Set<string>();
+  const order: string[] = [];
+  const written = new Set<string>();
+  const named = new Set<string>();
+  let value: string | undefined;
+  for (const p of parts) {
+    const low = p.toLowerCase();
+    let m: string | undefined = Object.hasOwn(MOD_NAMES, low) ? MOD_NAMES[low] : undefined;
+    if (low === "meta") return undefined;
+    if (low === "mod") {
+      if (mod === undefined) return undefined;
+      // `mod` with `super` or `ctrl`, whichever it stands for, is refused
+      // (SPEC §10.4), and `mod` twice, as any modifier is.
+      if (named.has("mod") || named.has("super") || named.has("ctrl")) return undefined;
+      named.add("mod");
+      m = mod;
+      written.add(m);
+    } else if (m !== undefined) {
+      if ((m === "super" || m === "ctrl") && named.has("mod")) return undefined;
+      named.add(m);
+    }
+    if (m !== undefined) {
+      if (mods.has(m)) return undefined;
+      mods.add(m);
+      order.push(m);
+      continue;
+    }
+    if (value !== undefined) return undefined;
+    if (p === "") value = "+";
+    else if (isChar(p)) value = lower(p);
+    else {
+      value = physical(p);
+      if (value === undefined) return undefined;
+    }
+  }
+  if (value === undefined) {
+    if (order.length === 0) return undefined;
+    value = order[order.length - 1]!;
+    mods.delete(value);
+    written.delete(value);
+  }
+  if (keep && written.size > 0) return join([...[...mods].filter((x) => !written.has(x)), "mod"], value);
+  return join(mods, value);
 }
 
 /**
- * A key's name in its canonical form (SDK.md §3.10): `Shift+Control+a` is
- * `Control+A`, `Control+ ` is `Control+Space`. Undefined when the name does
- * not parse: empty, an unknown modifier, a modifier twice, no key.
+ * A key's name read with myelin key names' default reading (SPEC §10.4;
+ * SDK.md §3.10), in its canonical form: `Shift+Ctrl+A` is `ctrl+shift+a`,
+ * `PageDown` is `page_down`, `esc` is `escape`. Undefined when the reading
+ * refuses it: empty, an unknown modifier, a modifier twice, no key,
+ * `meta`, and `mod`, which only a Platform reads ({@link readKey}).
  */
 export function parseKey(name: string): string | undefined {
-  const k = splitKey(name);
-  return k && keyName(...k);
+  return read(name, undefined, false);
+}
+
+// A canonical key as its modifiers, its value and its kind (myelin key
+// names §2.1): a "physical" key, a "modifier" key or a "character".
+function split(k: string): [Modifier[], string, "physical" | "modifier" | "character"] {
+  const parts = k.split("+");
+  const mods: Modifier[] = [];
+  while (parts.length > 1 && (MODIFIERS as readonly string[]).includes(parts[0]!)) mods.push(parts.shift() as Modifier);
+  const value = parts.join("+");
+  const kind = PHYSICAL.has(value) ? "physical" : (MODIFIERS as readonly string[]).includes(value) ? "modifier" : "character";
+  return [mods, value, kind];
+}
+
+/**
+ * The text a key types in a field (SPEC §10.2; SDK.md §3.10): a
+ * character's, a letter with `shift` as its capital, a space for `space`,
+ * and none for any other key, or a key with `ctrl`, `alt` or `super`.
+ * Undefined for none, and for a name that does not parse.
+ */
+export function keyText(key: string): string | undefined {
+  const k = parseKey(key);
+  if (k === undefined) return undefined;
+  const [mods, value, kind] = split(k);
+  if (mods.some((m) => m === "super" || m === "ctrl" || m === "alt")) return undefined;
+  if (value === "space") return " ";
+  if (kind !== "character") return undefined;
+  return mods.includes("shift") && isLetter(value) ? upper(value) : value;
 }
 
 // --- decoding (SPEC §10.4) ---------------------------------------------------
 
+// The key of a character with modifiers: a capital is shift with its
+// letter, a space is `space`.
+function charKey(c: string, mods: Iterable<string> = []): string {
+  const m = new Set(mods);
+  if (c === " ") return join(m, "space");
+  if (isCapital(c)) {
+    m.add("shift");
+    c = lower(c);
+  }
+  return join(m, c);
+}
+
 const C0: Record<number, string> = {
-  0x00: "Control+Space",
-  0x08: "Control+h",
-  0x09: "Tab",
-  0x0d: "Enter",
-  0x1b: "Escape",
-  0x7f: "Backspace",
-  0x1c: "Control+\\",
-  0x1d: "Control+]",
-  0x1e: "Control+^",
-  0x1f: "Control+_",
+  0x00: "ctrl+space",
+  0x08: "ctrl+h",
+  0x09: "tab",
+  0x0d: "enter",
+  0x1b: "escape",
+  0x7f: "backspace",
+  0x1c: "ctrl+\\",
+  0x1d: "ctrl+]",
+  0x1e: "ctrl+^",
+  0x1f: "ctrl+_",
 };
-const CSI_FINAL: Record<string, string> = { A: "ArrowUp", B: "ArrowDown", C: "ArrowRight", D: "ArrowLeft", H: "Home", F: "End" };
-const TILDE: Record<number, string> = { 1: "Home", 7: "Home", 4: "End", 8: "End", 2: "Insert", 3: "Delete", 5: "PageUp", 6: "PageDown" };
-const CODES: Record<number, string> = { 9: "Tab", 13: "Enter", 27: "Escape", 8: "Backspace", 127: "Backspace" };
-// The kitty keyboard protocol's codes from 57344 that name keys.
+const CSI_FINAL: Record<string, string> = { A: "arrow_up", B: "arrow_down", C: "arrow_right", D: "arrow_left", H: "home", F: "end" };
+const TILDE: Record<number, string> = { 1: "home", 7: "home", 4: "end", 8: "end", 2: "insert", 3: "delete", 5: "page_up", 6: "page_down" };
+const CODES: Record<number, string> = { 9: "tab", 13: "enter", 27: "escape", 8: "backspace", 127: "backspace", 32: "space" };
+// The kitty keyboard protocol's keypad codes, as a legacy terminal sends
+// the keys; its other codes from 57344, its modifier keys' among them, name
+// no key here.
 const KITTY: Record<number, string> = {
   ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [57399 + i, String(i)])),
   57409: ".",
@@ -204,26 +349,18 @@ const KITTY: Record<number, string> = {
   57411: "*",
   57412: "-",
   57413: "+",
-  57414: "Enter",
+  57414: "enter",
   57415: "=",
-  57417: "ArrowLeft",
-  57418: "ArrowRight",
-  57419: "ArrowUp",
-  57420: "ArrowDown",
-  57421: "PageUp",
-  57422: "PageDown",
-  57423: "Home",
-  57424: "End",
-  57425: "Insert",
-  57426: "Delete",
-  57441: "Shift",
-  57442: "Control",
-  57443: "Alt",
-  57444: "Meta",
-  57447: "Shift",
-  57448: "Control",
-  57449: "Alt",
-  57450: "Meta",
+  57417: "arrow_left",
+  57418: "arrow_right",
+  57419: "arrow_up",
+  57420: "arrow_down",
+  57421: "page_up",
+  57422: "page_down",
+  57423: "home",
+  57424: "end",
+  57425: "insert",
+  57426: "delete",
 };
 
 class Malformed extends Error {}
@@ -237,43 +374,44 @@ function int(s: string): number {
 // A key's name with more modifiers.
 function withMods(name: string | undefined, add: readonly Modifier[]): string | undefined {
   if (name === undefined) return undefined;
-  const [mods, value] = splitKey(name)!;
-  return keyName([...mods, ...add.filter((m) => !mods.includes(m))], value);
+  const [mods, value] = split(name);
+  return join([...mods, ...add], value);
 }
 
 // The modifiers in a CSI parameter `m[:e]`, and whether it is a release.
-function modifiers(field: string): [Modifier[], boolean] {
+function modifiers(field: string): [Set<string>, boolean] {
   const parts = field.split(":");
   const m = parts[0] ? int(parts[0]) : 1;
   const e = parts.length > 1 && parts[1] ? int(parts[1]) : 1;
   // Absent, empty or below 2: no modifier.
   const bits = Math.max(m - 1, 0);
-  const mods: Modifier[] = [];
-  if (bits & 1) mods.push("Shift");
-  if (bits & 2) mods.push("Alt");
-  if (bits & 4) mods.push("Control");
-  if (bits & (8 | 32)) mods.push("Meta");
+  const mods = new Set<string>();
+  if (bits & 1) mods.add("shift");
+  if (bits & 2) mods.add("alt");
+  if (bits & 4) mods.add("ctrl");
+  if (bits & (8 | 32)) mods.add("super");
   return [mods, e === 3];
 }
 
 // The key a kitty or modifyOtherKeys code names.
-function codeKey(code: number, mods: Modifier[], shifted?: number, text?: string): string | undefined {
+function codeKey(code: number, mods: Set<string>, shifted?: number, text?: string): string | undefined {
   const named = CODES[code];
-  if (named !== undefined) return keyName(mods, named);
+  if (named !== undefined) return join(mods, named);
   if (code >= 57344) {
     const k = KITTY[code];
-    return k === undefined ? undefined : keyName(mods, k);
+    return k === undefined ? undefined : join(mods, k);
   }
   if (code < 0x20 || code === 0x7f) return undefined;
-  const base = String.fromCodePoint(code);
-  let value = base;
-  if (mods.includes("Shift")) {
-    if (shifted) value = String.fromCodePoint(shifted);
-    else if (text) value = text;
-    else if (codePoints(value.toUpperCase()) === 1) value = value.toUpperCase();
-    if (value !== base) mods = mods.filter((m) => m !== "Shift");
+  const c = String.fromCodePoint(code);
+  // A letter is itself written small, with its shift; a capital without
+  // Shift being its small letter, as Caps Lock makes it.
+  if (isLetter(c)) return join(mods, lower(c));
+  if (mods.has("shift")) {
+    const rest = new Set([...mods].filter((m) => m !== "shift"));
+    if (shifted) return charKey(String.fromCodePoint(shifted), rest);
+    if (text) return charKey(text, rest);
   }
-  return [...MODIFIERS.filter((m) => mods.includes(m)), value === " " ? "Space" : value].join("+");
+  return join(mods, c);
 }
 
 // The key a CSI sequence names.
@@ -281,7 +419,7 @@ function csi(params: string, final: string): string | undefined {
   if (["<", "=", ">", "?"].includes(params.slice(0, 1))) return undefined;
   const fields = params.split(";");
   try {
-    const mods = (): [Modifier[], boolean] => (fields.length > 1 ? modifiers(fields[1]!) : [[], false]);
+    const mods = (): [Set<string>, boolean] => (fields.length > 1 ? modifiers(fields[1]!) : [new Set(), false]);
     if (final === "u") {
       const codes = fields[0]!.split(":").map((x) => (x ? int(x) : 0));
       const [m, release] = mods();
@@ -305,14 +443,14 @@ function csi(params: string, final: string): string | undefined {
       const named = TILDE[n];
       if (named === undefined) return undefined;
       const [m, release] = mods();
-      return release ? undefined : keyName(m, named);
+      return release ? undefined : join(m, named);
     }
     const named = CSI_FINAL[final];
     if (named !== undefined) {
       const [m, release] = mods();
-      return release ? undefined : keyName(m, named);
+      return release ? undefined : join(m, named);
     }
-    if (final === "Z") return "Shift+Tab";
+    if (final === "Z") return "shift+tab";
   } catch (e) {
     if (e instanceof Malformed || e instanceof RangeError) return undefined;
     throw e;
@@ -343,7 +481,7 @@ function codePointAt(data: Uint8Array, i: number): [number, number] | undefined 
 // The key of a control byte or a character at data[i], and its length.
 function one(data: Uint8Array, i: number): [string | undefined, number] {
   const b = data[i]!;
-  if (b < 0x20 || b === 0x7f) return [C0[b] ?? "Control+" + String.fromCharCode(b + 0x60), 1];
+  if (b < 0x20 || b === 0x7f) return [C0[b] ?? "ctrl+" + String.fromCharCode(b + 0x60), 1];
   // The text from here up to the next control, then its first character.
   let text = "";
   for (let j = i; j < data.length && data[j]! >= 0x20 && data[j] !== 0x7f; ) {
@@ -354,15 +492,15 @@ function one(data: Uint8Array, i: number): [string | undefined, number] {
   }
   if (text === "") return [undefined, 1];
   const c = chars(text)[0]!;
-  return [c === " " ? "Space" : c, utf8.encode(c).length];
+  return [charKey(c), utf8.encode(c).length];
 }
 
 /**
  * The keys in input from the terminal, the bytes a program reads, as SPEC
- * §10.4 names them: a canonical name for each key, or undefined for input
- * that is no key it names (a mouse report, a sequence it does not know).
- * It is pure: an ESC at the end of the input is Escape, so the caller passes
- * each read whole.
+ * §10.4's table names them: a canonical name for each key, or undefined for
+ * input that is no key it names (a mouse report, a sequence it does not
+ * know). It is pure: an ESC at the end of the input is `escape`, so the
+ * caller passes each read whole.
  */
 export function decodeKeys(input: Uint8Array | string): (string | undefined)[] {
   const data = typeof input === "string" ? utf8.encode(input) : input;
@@ -376,7 +514,7 @@ export function decodeKeys(input: Uint8Array | string): (string | undefined)[] {
       continue;
     }
     if (i + 1 === data.length) {
-      out.push("Escape");
+      out.push("escape");
       break;
     }
     const next = data[i + 1]!;
@@ -400,7 +538,7 @@ export function decodeKeys(input: Uint8Array | string): (string | undefined)[] {
       continue;
     }
     const [k, n] = one(data, i + 1);
-    out.push(withMods(k, ["Alt"]));
+    out.push(withMods(k, ["alt"]));
     i += 1 + n;
   }
   return out;
@@ -410,7 +548,38 @@ export function decodeKeys(input: Uint8Array | string): (string | undefined)[] {
 
 const isAction = (a: string): a is Action => (ACTIONS as readonly string[]).includes(a);
 const isScroll = (a: string): a is ScrollAction => (SCROLL_ACTIONS as readonly string[]).includes(a);
-const UNBINDABLE = new Set(["Tab", "Shift+Tab", "Escape"]);
+const UNBINDABLE = new Set(["tab", "shift+tab", "escape"]);
+
+/**
+ * How a host reads bindings (SDK.md §3.10): the modifier `mod` stands for,
+ * "ctrl" (the default) or "super" (SPEC §10.4), and its edit shortcuts,
+ * from each action to its keys (SPEC §10.2), {@link defaultEdit} when
+ * absent.
+ */
+export interface Platform {
+  mod?: string;
+  edit?: Readonly<Record<string, readonly string[]>>;
+}
+
+// What a Platform's mod is: "super", or "ctrl" for anything else.
+const modOf = (platform: Platform): "ctrl" | "super" => (platform.mod === "super" ? "super" : "ctrl");
+
+/** The Platform of a host's capabilities: its mod and edit, the defaults where it reports none. */
+export function platformOf(caps: { mod?: string; edit?: Record<string, string[]> }): Platform {
+  return { mod: caps.mod, edit: caps.edit };
+}
+
+/**
+ * A key's name as the platform reads it (SPEC §10.4; myelin key names
+ * §4.4): its canonical name ({@link parseKey}) with `mod` standing for the
+ * platform's, so that where `mod` is `ctrl` `mod+a` and `ctrl+a` read
+ * alike, and `mod+ctrl+a` is refused. A menu's keys compare with the keys
+ * typed this way ({@link menuLevelOf}). Undefined for a name the reading
+ * refuses.
+ */
+export function readKey(platform: Platform, name: string): string | undefined {
+  return read(name, modOf(platform), false);
+}
 
 /**
  * Bindings of keys to actions (SPEC §10.2). {@link parseKeymap} reads one
@@ -423,37 +592,31 @@ const UNBINDABLE = new Set(["Tab", "Shift+Tab", "Escape"]);
 export class Keymap {
   readonly #bindings = new Map<string, Action>();
   readonly #written = new Map<string, string>();
+  readonly #platform: Platform;
   /** Whether the field is multi-line: the actions only it has are the field's. */
   readonly multiline: boolean;
-  /** What Mod reads as: "Control" or "Meta". */
-  readonly mod: "Control" | "Meta";
+  /** What `mod` reads as: "ctrl" or "super". */
+  readonly mod: "ctrl" | "super";
 
   constructor(multiline = false, platform: Platform = {}) {
     this.multiline = multiline;
-    this.mod = platform.mod === "Meta" ? "Meta" : "Control";
+    this.#platform = platform;
+    this.mod = modOf(platform);
   }
 
   /**
    * Binds a key to an action, as a host reads a binding: false, and
-   * nothing bound, when the key does not parse, the action is unknown, or
-   * the key is Tab, Shift+Tab or Escape. Mod reads as the keymap's. A key
-   * bound again keeps its place, and is written as its last binding wrote
-   * it.
+   * nothing bound, when the key does not parse ({@link readKey}), the
+   * action is unknown, or the key is tab, shift+tab or escape. A key bound
+   * again keeps its place, and is written as its last binding wrote it:
+   * canonical, with `mod` first where it was written.
    */
   bind(key: string, action: string): boolean {
-    const w = parseKey(key);
-    if (w === undefined || !isAction(action)) return false;
-    const k = this.#read(w);
-    if (UNBINDABLE.has(k)) return false;
+    const k = readKey(this.#platform, key);
+    if (k === undefined || !isAction(action) || UNBINDABLE.has(k)) return false;
     this.#bindings.set(k, action);
-    this.#written.set(k, w);
+    this.#written.set(k, read(key, this.mod, true)!);
     return true;
-  }
-
-  // A canonical key with Mod read as the keymap's.
-  #read(k: string): string {
-    const [mods, value] = splitKey(k)!;
-    return mods.includes("Mod") ? keyName(mods.map((m) => (m === "Mod" ? this.mod : m)), value) : k;
   }
 
   /** The bindings, in the order their keys were first bound. */
@@ -467,46 +630,56 @@ export class Keymap {
   }
 
   /**
-   * What the field does with a key: an action; {@link INSERT} for a
-   * character it types; undefined when the key is not the field's (it
-   * reaches the program, or Tab moves focus).
+   * Whether the keymap binds a key, or, for a key with `shift` that is not
+   * a character and that it does not bind, the key without `shift` (SPEC
+   * §10.2). A host that has two names for a press (SPEC §10.4) asks of the
+   * physical one first, and of the other where the keymap does not bind
+   * it.
+   */
+  binds(key: string): boolean {
+    return this.#bound(key)?.action !== undefined;
+  }
+
+  /**
+   * What the field does with a key: an action; {@link INSERT} for a key it
+   * types ({@link keyText}); undefined when the key is not the field's (it
+   * reaches the program, or `tab` moves focus).
    */
   lookup(key: string): Action | typeof INSERT | undefined {
     const b = this.#bound(key);
     if (b === undefined || UNBINDABLE.has(b.key)) return undefined;
-    const { mods, value, action: a } = b;
+    const a = b.action;
     if (a !== undefined) return a === "program" || a === "prefix" || isScroll(a) || (MULTILINE_ACTIONS.has(a) && !this.multiline) ? undefined : a;
-    if (isChar(value) && !mods.some((m) => m !== "Shift")) return INSERT;
-    return undefined;
+    return keyText(b.key) !== undefined ? INSERT : undefined;
   }
 
   /**
    * Whether the field selects with a key (SPEC §10.2, Shift selects):
-   * {@link lookup} returns a move for it ({@link MOVES}), and its canonical
-   * name has Shift (`Shift+ArrowLeft`, `Control+Shift+End`, not `Alt+<`).
-   * The field then does the move with `Field.extend`.
+   * {@link lookup} returns a move for it ({@link MOVES}), and its name has
+   * `shift` (`shift+arrow_left`, `ctrl+shift+end`, not `alt+<`). The field
+   * then does the move with `Field.extend`.
    */
   selects(key: string): boolean {
-    const p = parseKey(key);
-    if (p === undefined) return false;
-    const k = this.#read(p);
-    const a = this.lookup(k);
-    return a !== undefined && a !== INSERT && MOVES.has(a) && splitKey(k)![0].includes("Shift");
+    const b = this.#bound(key);
+    if (b === undefined) return false;
+    const a = this.lookup(b.key);
+    return a !== undefined && a !== INSERT && MOVES.has(a) && split(b.key)[0].includes("shift");
   }
 
   /**
    * Whether the keymap gives a key to the program: binds it to `program`
-   * or `prefix`, or, for a key with Shift that no binding names, binds it
-   * without Shift (SPEC §10.2, keys for the program).
+   * or `prefix`, with the fallback of {@link binds} (SPEC §10.2, keys for
+   * the program).
    *
    * Every focused element has a keymap, and outside a text field it gives
    * only `program` and the scroll actions. A host reads the element's as a
    * field's, from the `data-keys` values of the elements from the root down
    * to it, but with no default keymap and with its scroll actions:
-   * `parseKeymap(values.join(" "))`. It gives a key the keymap binds to
-   * `program` or `prefix` to the program before the element uses it, and
-   * before the surface scrolls with it; a nearer binding of the key to
-   * another action takes it back. In a field, {@link lookup} says as much.
+   * `parseKeymap(platform, values.join(" "))`. It gives a key the keymap
+   * binds to `program` or `prefix` to the program before the element uses
+   * it, and before the surface scrolls with it; a nearer binding of the key
+   * to another action takes it back. In a field, {@link lookup} says as
+   * much.
    */
   program(key: string): boolean {
     const a = this.#bound(key)?.action;
@@ -515,9 +688,9 @@ export class Keymap {
 
   /**
    * Whether the keymap binds a key to `prefix`, with the same fallback
-   * without Shift as {@link program}. A host asks it of a key `program`
-   * gives the program, and from then on gives the program every key, Tab,
-   * Shift+Tab and Escape too, until the program sends `a=focus` or
+   * without `shift` as {@link binds}. A host asks it of a key `program`
+   * gives the program, and from then on gives the program every key, tab,
+   * shift+tab and escape too, until the program sends `a=focus` or
    * `a=blur`, the surface loses the keyboard, or the user focuses an
    * element of it with a press (SPEC §10.5).
    */
@@ -527,7 +700,7 @@ export class Keymap {
 
   /**
    * The scroll action the keymap binds a key to, with the same fallback
-   * without Shift as {@link program}; undefined for none (SPEC §10.2,
+   * without `shift` as {@link binds}; undefined for none (SPEC §10.2,
    * scrolling keys). A host asks it of the keymap it asks program of, for a
    * key the focused element does not use, along an axis the document
    * scrolls.
@@ -537,24 +710,21 @@ export class Keymap {
     return a !== undefined && isScroll(a) ? a : undefined;
   }
 
-  // The action the keymap binds a key to, with the key, canonical, and its
-  // parts: a key with Shift that no binding names is looked up without
-  // Shift. Undefined when the key does not parse.
-  #bound(key: string): { key: string; mods: Modifier[]; value: string; action: Action | undefined } | undefined {
-    const p = parseKey(key);
-    if (p === undefined) return undefined;
-    const k = this.#read(p);
-    const [mods, value] = splitKey(k)!;
+  // The action the keymap binds a key to, with the key, canonical: a key
+  // with shift that is not a character, and that no binding names, is
+  // looked up without shift (SPEC §10.2). Undefined when the key does not
+  // parse.
+  #bound(key: string): { key: string; action: Action | undefined } | undefined {
+    const k = parseKey(key);
+    if (k === undefined) return undefined;
     let action = this.#bindings.get(k);
-    if (action === undefined && mods.includes("Shift")) {
-      action = this.#bindings.get(
-        keyName(
-          mods.filter((m) => m !== "Shift"),
-          value,
-        ),
-      );
+    if (action === undefined) {
+      const [mods, value, kind] = split(k);
+      if (mods.includes("shift") && kind !== "character") {
+        action = this.#bindings.get(join(mods.filter((m) => m !== "shift"), value));
+      }
     }
-    return { key: k, mods, value, action };
+    return { key: k, action };
   }
 }
 
@@ -568,106 +738,75 @@ function* bindingsOf(value: string): Generator<[string, string]> {
   }
 }
 
-/** A `data-keys` value's bindings, without those a host ignores (SPEC §10.2), Mod read as the platform's. */
+/** A `data-keys` value's bindings, without those a host ignores (SPEC §10.2), each key read on the platform. */
 export function parseKeymap(platform: Platform, value: string): Keymap {
   const m = new Keymap(false, platform);
   for (const [k, a] of bindingsOf(value)) m.bind(k, a);
   return m;
 }
 
-/**
- * How a host reads bindings (SDK.md §3.10): the modifier `Mod` stands for,
- * "Control" (the default) or "Meta" (SPEC §10.4), and its edit shortcuts,
- * from each action to its keys (SPEC §10.2), {@link defaultEdit} when
- * absent.
- */
-export interface Platform {
-  mod?: string;
-  edit?: Readonly<Record<string, readonly string[]>>;
-}
-
-/** The Platform of a host's capabilities: its mod and edit, the defaults where it reports none. */
-export function platformOf(caps: { mod?: string; edit?: Record<string, string[]> }): Platform {
-  return { mod: caps.mod, edit: caps.edit };
-}
-
-/**
- * A key's name as the platform reads it (SPEC §10.4): its canonical name
- * ({@link parseKey}) with `Mod` read as the platform's, so that where Mod
- * is Control `Mod+a` and `Control+a` read alike, and where it is Meta they
- * are two keys. A menu's keys compare with the keys typed this way
- * ({@link menuLevelOf}). Undefined for a name that does not parse.
- */
-export function readKey(platform: Platform, name: string): string | undefined {
-  const canon = parseKey(name);
-  if (canon === undefined) return undefined;
-  const [mods, value] = splitKey(canon)!;
-  const mod = platform.mod === "Meta" ? "Meta" : "Control";
-  return mods.includes("Mod") ? keyName(mods.map((m) => (m === "Mod" ? mod : m)), value) : canon;
-}
-
 // The edit actions, in SPEC §10.2's order.
 const EDIT_ACTIONS: readonly Action[] = ["select-all", "copy", "cut", "paste", "undo", "redo"];
 
-/** The default edit shortcuts for a Mod (SPEC §10.2), the keys canonical with Mod read. */
-export function defaultEdit(mod = "Control"): Record<string, string[]> {
-  const m = mod === "Meta" ? "Meta" : "Control";
+/** The default edit shortcuts for a `mod` (SPEC §10.2), the keys read: `ctrl+shift+z` and `ctrl+y` for `redo` where it is `ctrl`. */
+export function defaultEdit(mod = "ctrl"): Record<string, string[]> {
+  const m = mod === "super" ? "super" : "ctrl";
   const e: Record<string, string[]> = {
     "select-all": [`${m}+a`],
     copy: [`${m}+c`],
     cut: [`${m}+x`],
     paste: [`${m}+v`],
     undo: [`${m}+z`],
-    redo: [`${m}+Z`],
+    redo: [`${m}+shift+z`],
   };
-  if (m === "Control") e.redo!.push("Control+y");
+  if (m === "ctrl") e.redo!.push("ctrl+y");
   return e;
 }
 
-// The default keymap (SPEC §10.2): every host's keys, then those of its Mod.
+// The default keymap (SPEC §10.2): every host's keys, then those of its mod.
 const DEFAULT_KEYS: readonly [string, Action][] = [
-  ["ArrowLeft", "char-backward"],
-  ["ArrowRight", "char-forward"],
-  ["Alt+ArrowLeft", "word-backward"],
-  ["Alt+ArrowRight", "word-forward"],
-  ["Home", "line-start"],
-  ["End", "line-end"],
-  ["Backspace", "delete-char-backward"],
-  ["Delete", "delete-char-forward"],
-  ["Alt+Backspace", "delete-word-backward"],
-  ["Alt+Delete", "delete-word-forward"],
-  ["ArrowUp", "line-previous"],
-  ["ArrowDown", "line-next"],
-  ["PageUp", "page-up"],
-  ["PageDown", "page-down"],
+  ["arrow_left", "char-backward"],
+  ["arrow_right", "char-forward"],
+  ["alt+arrow_left", "word-backward"],
+  ["alt+arrow_right", "word-forward"],
+  ["home", "line-start"],
+  ["end", "line-end"],
+  ["backspace", "delete-char-backward"],
+  ["delete", "delete-char-forward"],
+  ["alt+backspace", "delete-word-backward"],
+  ["alt+delete", "delete-word-forward"],
+  ["arrow_up", "line-previous"],
+  ["arrow_down", "line-next"],
+  ["page_up", "page-up"],
+  ["page_down", "page-down"],
 ];
-const CONTROL_KEYS: readonly [string, Action][] = [
-  ["Control+ArrowLeft", "word-backward"],
-  ["Control+ArrowRight", "word-forward"],
-  ["Control+Home", "input-start"],
-  ["Control+End", "input-end"],
-  ["Control+Backspace", "delete-word-backward"],
-  ["Control+Delete", "delete-word-forward"],
+const CTRL_KEYS: readonly [string, Action][] = [
+  ["ctrl+arrow_left", "word-backward"],
+  ["ctrl+arrow_right", "word-forward"],
+  ["ctrl+home", "input-start"],
+  ["ctrl+end", "input-end"],
+  ["ctrl+backspace", "delete-word-backward"],
+  ["ctrl+delete", "delete-word-forward"],
 ];
-const META_KEYS: readonly [string, Action][] = [
-  ["Meta+ArrowLeft", "line-start"],
-  ["Meta+ArrowRight", "line-end"],
-  ["Meta+ArrowUp", "input-start"],
-  ["Meta+ArrowDown", "input-end"],
-  ["Meta+Backspace", "delete-to-line-start"],
-  ["Control+a", "line-start"],
-  ["Control+e", "line-end"],
-  ["Control+b", "char-backward"],
-  ["Control+f", "char-forward"],
-  ["Control+p", "line-previous"],
-  ["Control+n", "line-next"],
-  ["Control+h", "delete-char-backward"],
-  ["Control+d", "delete-char-forward"],
-  ["Control+k", "delete-to-line-end"],
+const SUPER_KEYS: readonly [string, Action][] = [
+  ["super+arrow_left", "line-start"],
+  ["super+arrow_right", "line-end"],
+  ["super+arrow_up", "input-start"],
+  ["super+arrow_down", "input-end"],
+  ["super+backspace", "delete-to-line-start"],
+  ["ctrl+a", "line-start"],
+  ["ctrl+e", "line-end"],
+  ["ctrl+b", "char-backward"],
+  ["ctrl+f", "char-forward"],
+  ["ctrl+p", "line-previous"],
+  ["ctrl+n", "line-next"],
+  ["ctrl+h", "delete-char-backward"],
+  ["ctrl+d", "delete-char-forward"],
+  ["ctrl+k", "delete-to-line-end"],
 ];
 
 /**
- * A field's keymap: SPEC §10.2's default for the platform's Mod, with its
+ * A field's keymap: SPEC §10.2's default for the platform's `mod`, with its
  * edit shortcuts, for an `input` or for a multi-line field, then each
  * `data-keys` value in turn, the root's first. A binding to a scroll action
  * is left out where it stands, in its own value too: it neither acts nor
@@ -676,8 +815,8 @@ const META_KEYS: readonly [string, Action][] = [
 export function resolve(platform: Platform, multiline: boolean, ...values: string[]): Keymap {
   const m = new Keymap(multiline, platform);
   for (const [k, a] of DEFAULT_KEYS) m.bind(k, a);
-  m.bind("Enter", multiline ? "newline" : "submit");
-  for (const [k, a] of platform.mod === "Meta" ? META_KEYS : CONTROL_KEYS) m.bind(k, a);
+  m.bind("enter", multiline ? "newline" : "submit");
+  for (const [k, a] of modOf(platform) === "super" ? SUPER_KEYS : CTRL_KEYS) m.bind(k, a);
   const edit = platform.edit ?? defaultEdit(platform.mod);
   for (const a of EDIT_ACTIONS) for (const k of edit[a] ?? []) m.bind(k, a);
   for (const v of values) for (const [k, a] of bindingsOf(v)) if (!isScroll(a)) m.bind(k, a);

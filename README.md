@@ -7,11 +7,13 @@ user does in them. It follows the hotty repository's SDK.md: the same two
 layers, names and defaults as the other SDKs, and every SDK section of the
 conformance vectors.
 
-It speaks HOTTY 0.3: a host's replies and events carry msgpack bodies
-(SPEC §3.3), and its query lists the version it speaks (`a=q:n=1:v=0.3`,
-SPEC §4). A terminal of another HOTTY version, a 0.2 one included, is no
-host to it, and the program draws in cells. Moving a program from 0.2 is
-CHANGES.md's "Upgrading from 0.2" in the hotty repository.
+It speaks HOTTY 0.4: a host's replies and events carry msgpack bodies
+(SPEC §3.3), its query lists the version it speaks (`a=q:n=1:v=0.4`,
+SPEC §4), and keys are named as myelin key names 0.1 names them (SPEC
+§10.4): `ctrl+a`, `arrow_left`, `shift+g`, and `mod+s` in a binding. A
+terminal of another HOTTY version, a 0.3 one included, is no host to it,
+and the program draws in cells. Moving a program from 0.3 is CHANGES.md's
+"Upgrading from 0.3" in the hotty repository.
 
 The package is `@neuroplastio/hotty`. It is not published yet: the first
 release will be 0.1.0, once the repository is public.
@@ -84,7 +86,7 @@ leaves them as they were. A `Session` sends each only when it changes.
 
 A reply to a delta names the op that failed by its index (`reply.op`). A
 program that can do things sends them as a menu tree (`menu`), shows the
-level its keys reach (`menuShow(["Space", "f"])`) and hides it (`menuHide`),
+level its keys reach (`menuShow(["space", "f"])`) and hides it (`menuHide`),
 and a pick, from a multiplexer's palette or an agent, reaches it as a
 `command` event with the item's `name`. A host asks of its capabilities `caps.has("menu")`, and of a
 host's `caps` event `caps.merge(ev.changed())`; the `Terminal`, the `Link`
@@ -127,17 +129,17 @@ selects, as on a host, and the field's `selection()` is what to draw as
 selected:
 
 ```ts
-import { INSERT, TERMINAL_KEYS, decodeKeys, platformOf, resolve } from "@neuroplastio/hotty";
+import { INSERT, TERMINAL_KEYS, decodeKeys, keyText, platformOf, resolve } from "@neuroplastio/hotty";
 import { Field } from "@neuroplastio/hotty/field";
 
 const html = `<form data-keys="${TERMINAL_KEYS}"><input id=name></form>`; // on a host
-const keys = resolve(platformOf(caps), false, TERMINAL_KEYS); // in cells, with the host's Mod
+const keys = resolve(platformOf(caps), false, TERMINAL_KEYS); // in cells, with the host's mod
 const f = new Field();
 for (const key of decodeKeys(read)) {
   const a = key === undefined ? undefined : keys.lookup(key);
-  if (a === INSERT) f.type(key === "Space" ? " " : key!);
+  if (a === INSERT) f.type(keyText(key!)!); // "shift+a" types "A"
   else if (a === "submit") submit(f.value);
-  else if (a && keys.selects(key!)) f.extend(a); // Shift+ArrowLeft, Control+Shift+End
+  else if (a && keys.selects(key!)) f.extend(a); // shift+arrow_left, ctrl+shift+end
   else if (a) f.do(a); // true when the value changed: an input event's worth
   else onKey(key); // not the field's: the program's own keymap has it
 }
@@ -178,14 +180,14 @@ keepCursor })`.
   `fields()`, a `Caps` field the host left out. A submit's `fields()` are
   pairs, `[name, value][]`; `mods()` is the modifier bits (`MOD_SHIFT`, …).
 - **Versions.** The query lists the version the SDK speaks, `VERSION`
-  (`a=q:n=1:v=0.3`, SPEC §4), and detection takes the terminal for a host
+  (`a=q:n=1:v=0.4`, SPEC §4), and detection takes the terminal for a host
   only when it answers with capabilities that decode and name it. Any other
   answer to the query, an error (`EVERSION` from a host of other versions,
   or another code) or capabilities it cannot read (a 0.1 host's JSON) or of
   another version, is text at once, done with the DA1 behind it: `detect()`
   is false, `caps` absent, and the reply, detection's, never reaches the
   input. With `late`, only a reply that makes the terminal a host is the
-  late answer. The test host speaks 0.3 only, and answers a query that does
+  late answer. The test host speaks 0.4 only, and answers a query that does
   not list it with `EVERSION`.
 - **Errors** are exceptions: `HottyError` (from `reply.err()`), and
   `NoAnswerError` when a request or a fence gets no answer in time, which
@@ -229,7 +231,7 @@ keepCursor })`.
 ## Conformance
 
 The vectors are the hotty repository's `conformance/vectors.json`, of
-version 0.3, copied to `test/testdata`, and checked against a checkout of
+version 0.4, copied to `test/testdata`, and checked against a checkout of
 hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 
 - **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan`, `detect`,
