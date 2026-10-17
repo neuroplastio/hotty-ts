@@ -449,7 +449,7 @@ describe("Session", () => {
 });
 
 // A framework that parses its own input (SDK.md §4.2): it hands the link
-// each HOTTY sequence without its terminator, eats DA1, and writes what
+// each hotty sequence without its terminator, eats DA1, and writes what
 // the Session returns between its frames.
 describe("Session on a link a framework feeds", () => {
   function pushed() {

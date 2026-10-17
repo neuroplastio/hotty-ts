@@ -1,11 +1,11 @@
-// HOTTY sequences out of a byte stream, however the reads split it
+// hotty sequences out of a byte stream, however the reads split it
 // (SDK.md §3.7).
 
 import { NUMBER } from "./constants.ts";
 
 /**
- * A piece of the stream: `pass`, bytes that are not HOTTY's, unchanged;
- * `osc`, one complete HOTTY sequence from `ESC ] 7279 ;` to its terminator;
+ * A piece of the stream: `pass`, bytes that are not hotty's, unchanged;
+ * `osc`, one complete hotty sequence from `ESC ] 7279 ;` to its terminator;
  * `da1`, an answer to Primary Device Attributes, from a Scanner that looks
  * for them.
  */
@@ -14,7 +14,7 @@ export interface Segment {
   data: Uint8Array;
 }
 
-/** The longest HOTTY sequence a Scanner keeps, its terminator not counted. */
+/** The longest hotty sequence a Scanner keeps, its terminator not counted. */
 export const SCAN_MAX = 64 << 10;
 
 const ESC = 0x1b;
@@ -71,9 +71,9 @@ export interface ScannerOptions {
 }
 
 /**
- * Cuts HOTTY sequences out of a byte stream (SDK.md §3.7). It holds only
+ * Cuts hotty sequences out of a byte stream (SDK.md §3.7). It holds only
  * what may still become a segment of its own: the start of `ESC ] 7279 ;`
- * (or of a DA1 answer), and a HOTTY sequence in progress. Everything else
+ * (or of a DA1 answer), and a hotty sequence in progress. Everything else
  * goes out in the same feed that brought it, so the segments do not depend
  * on how the stream was split.
  */
@@ -83,8 +83,8 @@ export class Scanner {
   /** The sequences it dropped as malformed. */
   invalid = 0;
   #mode: Mode = MODE.ground;
-  #held = new Bytes(); // a prefix of a sequence, or the HOTTY sequence in progress
-  #esc = false; // the last byte inside a HOTTY sequence was ESC
+  #held = new Bytes(); // a prefix of a sequence, or the hotty sequence in progress
+  #esc = false; // the last byte inside a hotty sequence was ESC
   #out: Segment[] = [];
   #pass = new Bytes();
 
@@ -119,7 +119,7 @@ export class Scanner {
   }
 
   /**
-   * Ends the stream: what is held goes out as pass, except a HOTTY
+   * Ends the stream: what is held goes out as pass, except a hotty
    * sequence in progress, which is dropped as malformed.
    */
   flush(): Segment[] {
@@ -149,7 +149,7 @@ export class Scanner {
 
   #byte(c: number) {
     if (this.#mode === MODE.discard) {
-      // Dropping a HOTTY sequence longer than SCAN_MAX, up to its end.
+      // Dropping a hotty sequence longer than SCAN_MAX, up to its end.
       if (this.#esc) {
         this.#esc = false;
         this.#mode = MODE.ground;

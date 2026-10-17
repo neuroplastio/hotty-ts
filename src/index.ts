@@ -1,8 +1,8 @@
 /**
- * HOTTY, HTML Over The TTY (https://github.com/neuroplastio/hotty), from a
+ * hotty, HTML over the TTY (https://github.com/neuroplastio/hotty), from a
  * TypeScript program: the wire layer (SDK.md §3).
  *
- * A HOTTY host is a terminal that shows surfaces: small HTML documents
+ * A hotty host is a terminal that shows surfaces: small HTML documents
  * placed on rectangles of cells. A program sends documents, placements and
  * deltas as escape sequences in its ordinary output, and hears replies and
  * the user's events on its input.
@@ -11,7 +11,7 @@
  *
  * - The builders ({@link doc}, {@link place}, {@link setText}, …) return
  *   escape sequences as strings, to write like any other output.
- * - A {@link Scanner} cuts HOTTY sequences out of the bytes a program reads,
+ * - A {@link Scanner} cuts hotty sequences out of the bytes a program reads,
  *   a {@link Decoder} turns them into messages, and {@link Reply},
  *   {@link Event} and {@link Caps} read them. Their bodies are msgpack,
  *   which {@link unpack} reads.

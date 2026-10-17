@@ -42,7 +42,7 @@ describe("Terminal.open on a pty", () => {
       () => {
         const { code, out } = hello(mode);
         assert.equal(code, 0, out);
-        assert.doesNotMatch(out, /not a HOTTY host/);
+        assert.doesNotMatch(out, /not a hotty host/);
         assert.match(out, /\x1b\]7279;a=doc:s=hello-\d+-hello:d=1[:;]/, "a detached document, named for the process");
         assert.match(out, /\x1b\]7279;a=place:s=hello-\d+-hello:c=40:r=1/);
         assert.match(out, /\x1b\[c$/, "the fence last");

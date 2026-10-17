@@ -36,7 +36,7 @@ export const FENCE_TIMEOUT = 1000;
 export const QUERY_N = 1;
 /**
  * How long a lone ESC at the end of a read waits for what may follow it
- * before it goes out as the Escape key: a HOTTY sequence cut right after
+ * before it goes out as the Escape key: a hotty sequence cut right after
  * its ESC still arrives whole.
  */
 export const ESCAPE_DELAY = 25;
@@ -56,14 +56,14 @@ export const systemClock: Clock = {
   clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
 };
 
-/** What a terminal is known to be without asking it, such as one in a page that always has the HOTTY addon. */
+/** What a terminal is known to be without asking it, such as one in a page that always has the hotty addon. */
 export interface Known {
   native: boolean;
   caps?: Caps;
 }
 
 /**
- * What arrives that no call waits for, in the order it arrived: a HOTTY
+ * What arrives that no call waits for, in the order it arrived: a hotty
  * message (a reply or an event), other bytes of a byte stream (keys, the
  * mouse, pastes, other answers), unchanged, or a late answer to the query
  * (SPEC §4): the terminal is a host from now on, with these capabilities.
@@ -98,7 +98,7 @@ export interface LinkOptions {
   known?: Known;
   /**
    * Ask for a late answer (SPEC §4), for a program that can start using
-   * HOTTY after it fell back: what passes HOTTY through with no host yet,
+   * hotty after it fell back: what passes hotty through with no host yet,
    * such as a multiplexer's pane with no terminal attached, may answer once
    * a terminal that is a host attaches. The answer comes to the input
    * stream as `host`, and detect answers true from then on. Until it comes,
@@ -210,7 +210,7 @@ export class Link {
 
   /**
    * Takes the next bytes of the terminal's input, however its reads split
-   * it: HOTTY's sequences and DA1 answers are cut out of them (a Scanner).
+   * it: hotty's sequences and DA1 answers are cut out of them (a Scanner).
    * A lone ESC at the end of a read is the Escape key, once nothing follows
    * it within escapeDelay.
    */
@@ -240,7 +240,7 @@ export class Link {
   /**
    * Takes one complete OSC sequence, with or without its terminator, as an
    * environment's input parser hands it over. Returns whether it was
-   * HOTTY's: a sequence that is not goes back to the environment.
+   * hotty's: a sequence that is not goes back to the environment.
    */
   osc(seq: string | Uint8Array): boolean {
     if (this.#closed) return false;
@@ -420,7 +420,7 @@ export class Link {
   // --- detection ---------------------------------------------------------------
 
   /**
-   * Asks the terminal whether it is a HOTTY host that speaks this SDK's
+   * Asks the terminal whether it is a hotty host that speaks this SDK's
    * version (SPEC §4), once: later calls answer what the first found, or
    * true once a late answer came. It resolves when the detection is done,
    * so that nothing of it is left for whatever reads the terminal next, or
@@ -502,7 +502,7 @@ export class Link {
     }
   }
 
-  /** What detection found: true for a HOTTY host. False until it is decided. */
+  /** What detection found: true for a hotty host. False until it is decided. */
   get native(): boolean {
     return this.#native;
   }

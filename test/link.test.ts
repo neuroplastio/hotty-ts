@@ -77,7 +77,7 @@ describe("Link in a push environment", () => {
     assert.equal(native, false);
   });
 
-  test("osc says whether a sequence was HOTTY's; events reach the listener", async () => {
+  test("osc says whether a sequence was hotty's; events reach the listener", async () => {
     const { h, link } = pushed();
     await link.detect();
     assert.equal(link.osc("\x1b]11;rgb:0/0/0"), false);

@@ -1,4 +1,4 @@
-// A HOTTY host that runs inside a test (SDK.md §4.4).
+// A hotty host that runs inside a test (SDK.md §4.4).
 
 import { CAPS, DETAIL, ERROR } from "../bodies.ts";
 import { deltaOf, menuFind, menuLevelOf, menuOf, menuShowOf, touchOf, type MenuItem, type MenuTree, type Op, type TouchArea } from "../commands.ts";
@@ -35,7 +35,7 @@ type AnyNode = Parameters<typeof walk>[0];
 /** Why a user's action could not be done, or the program broke the protocol. */
 export type HostErrorCode =
   | "protocol" // the program broke the protocol (a strict host)
-  | "not-host" // the terminal is not a HOTTY host
+  | "not-host" // the terminal is not a hotty host
   | "no-surface"
   | "no-element"
   | "detached" // the surface is detached, and reports nothing
@@ -87,13 +87,13 @@ export interface HostOptions {
    */
   caps?: CapsBody;
   /**
-   * A terminal that is not a HOTTY host: it answers DA1 and the cursor's
-   * position, and ignores HOTTY, until becomeHost.
+   * A terminal that is not a hotty host: it answers DA1 and the cursor's
+   * position, and ignores hotty, until becomeHost.
    */
   text?: boolean;
   /**
    * Record protocol errors (errors()) instead of throwing them from write: a
-   * malformed message, one the host refuses as EINVAL, or a HOTTY command
+   * malformed message, one the host refuses as EINVAL, or a hotty command
    * other than the query sent to a terminal that is not a host.
    */
   lenient?: boolean;
@@ -142,7 +142,7 @@ function estimateRows(s: Surface, cols: number): number {
 }
 
 /**
- * A HOTTY host for a test: a terminal the program writes to ({@link write})
+ * A hotty host for a test: a terminal the program writes to ({@link write})
  * and reads from (it is an async iterable of what the terminal sends). The
  * test then looks at what the program showed, and plays the user.
  *
@@ -235,7 +235,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     return new Caps(this.#caps);
   }
 
-  /** Whether the terminal is a HOTTY host: false when made with text, until becomeHost. */
+  /** Whether the terminal is a hotty host: false when made with text, until becomeHost. */
   get host(): boolean {
     return !this.#text;
   }
@@ -308,7 +308,7 @@ export class Host implements AsyncIterable<Uint8Array> {
   }
 
   /**
-   * The program's output. It is parsed as it comes: HOTTY commands are
+   * The program's output. It is parsed as it comes: hotty commands are
    * carried out and answered, the terminal's queries answered, and the rest
    * kept as cells. A strict host throws a HostError, once the whole write
    * is taken, for a protocol error in it.
@@ -483,13 +483,13 @@ export class Host implements AsyncIterable<Uint8Array> {
     const f = this.#dec.feed(seq);
     if (this.#dec.invalid > before) {
       this.#invalid += this.#dec.invalid - before;
-      this.#protocol(`a malformed HOTTY message (SPEC §3.7): ${JSON.stringify(seq.slice(0, 80))}`);
+      this.#protocol(`a malformed hotty message (SPEC §3.7): ${JSON.stringify(seq.slice(0, 80))}`);
     }
     if (f.result !== "complete") return;
     const m = f.message;
     this.#commands.push(m);
     if (this.#text) {
-      if (m.get("a") !== "q") this.#protocol(`a HOTTY command to a terminal that is not a host (SPEC §14): ${ctlString(m)}`);
+      if (m.get("a") !== "q") this.#protocol(`a hotty command to a terminal that is not a host (SPEC §14): ${ctlString(m)}`);
       // One query held at a time: any other takes its place (SPEC §4).
       else this.#late = m.get("late") === "1" && m.get("q") !== "2" ? m : undefined;
       return;
@@ -814,7 +814,7 @@ export class Host implements AsyncIterable<Uint8Array> {
 
   // A surface the user can act in.
   #target(surface: string): Surface {
-    if (this.#text) throw new HostError("not-host", "the terminal is not a HOTTY host");
+    if (this.#text) throw new HostError("not-host", "the terminal is not a hotty host");
     const s = this.#surfaces.get(surface);
     if (!s) throw new HostError("no-surface", `no surface ${surface}`);
     if (!s.placed) throw new HostError("not-placed", `${surface} is not placed`);
@@ -1512,7 +1512,7 @@ export class Host implements AsyncIterable<Uint8Array> {
    * number or a `Float` as a float.
    */
   emit(surface: string, kind: string, target: string, detail?: unknown): void {
-    if (this.#text) throw new HostError("not-host", "the terminal is not a HOTTY host");
+    if (this.#text) throw new HostError("not-host", "the terminal is not a hotty host");
     const s = this.#surfaces.get(surface);
     if (!s) throw new HostError("no-surface", `no surface ${surface}`);
     if (s.detached) throw this.#detachedError(s);
@@ -1704,7 +1704,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     return this.#output.map((b) => d.decode(b, { stream: true })).join("") + d.decode();
   }
 
-  /** The HOTTY messages the program sent, in order. */
+  /** The hotty messages the program sent, in order. */
   commands(): Message[] {
     return [...this.#commands];
   }

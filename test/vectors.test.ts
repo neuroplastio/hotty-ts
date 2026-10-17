@@ -50,7 +50,7 @@ test("the vectors are this SDK's version", () => {
   });
 }
 
-// A builder's or encoder's output as raw bytes and HOTTY sequences.
+// A builder's or encoder's output as raw bytes and hotty sequences.
 function oscSegments(out: string): { raw?: string; osc?: Uint8Array }[] {
   const sc = new hotty.Scanner();
   const segs = [...sc.feed(out), ...sc.flush()];

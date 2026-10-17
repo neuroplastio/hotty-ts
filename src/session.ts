@@ -1,5 +1,5 @@
 /**
- * A full-screen program's side of HOTTY, for a UI framework's adapter
+ * A full-screen program's side of hotty, for a UI framework's adapter
  * (SDK.md §4.3): it finds out whether the terminal is a host, keeps the
  * program's surfaces on screen as its frame changes, and turns what the host
  * sends into messages. It assumes nothing of the framework: it never writes
@@ -123,7 +123,7 @@ export type SessionMessage =
   | { kind: "relayout" }
   /** A ping's answer: the terminal took what was written before it, took milliseconds after. */
   | { kind: "pong"; took: number }
-  /** Bytes of a byte stream that are not HOTTY's: keys, the mouse, other answers, as they were. */
+  /** Bytes of a byte stream that are not hotty's: keys, the mouse, other answers, as they were. */
   | { kind: "input"; data: Uint8Array };
 
 /** What layout has sent so far, and the relayouts after the screen was erased or scrolled. */
@@ -205,7 +205,7 @@ const samePlaced = (a: Placed, b: Placed) =>
   a.fit === b.fit &&
   a.hover === b.hover;
 
-/** A full-screen program's side of HOTTY (SDK.md §4.3). */
+/** A full-screen program's side of hotty (SDK.md §4.3). */
 export class Session {
   /** The link to the host. */
   readonly link: Link;
@@ -219,7 +219,7 @@ export class Session {
   caps: Caps | undefined;
   /** The most surfaces to keep; see SessionOptions.limit. */
   limit: number;
-  /** The bytes of HOTTY commands flush has returned. */
+  /** The bytes of hotty commands flush has returned. */
   sent = 0;
   /** What layout has sent. */
   readonly counts: Counts = { docs: 0, places: 0, hides: 0, deletes: 0, relayouts: 0 };

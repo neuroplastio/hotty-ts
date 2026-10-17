@@ -1,6 +1,6 @@
 # For agents
 
-hotty-ts is the TypeScript SDK for HOTTY, published as `@neuroplastio/hotty`.
+hotty-ts is the TypeScript SDK for hotty, published as `@neuroplastio/hotty`.
 The protocol is `SPEC.md` and what an SDK owes is `SDK.md`, both in
 neuroplastio/hotty. This repository implements them and must not grow them.
 

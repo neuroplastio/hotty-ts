@@ -13,7 +13,7 @@
 // A card's document is made as the card is when it is sent: the first time,
 // and again if the host lost it. While the host has it, changing the card
 // is a delta (setAttr, setText), not a new document.
-// Where the terminal is not a HOTTY host, the cards are drawn in cells.
+// Where the terminal is not a hotty host, the cards are drawn in cells.
 //
 //   node examples/board.ts
 //
@@ -74,7 +74,7 @@ export async function run(env: Env): Promise<number> {
         cells += `\x1b[${4 + i * 4};3H${mark} [${done[i] ? "x" : " "}] ${title}\x1b[K`;
       });
     }
-    cells += `\x1b[${rows};1H${s.mode === "native" ? "HOTTY host: the cards are surfaces" : "not a HOTTY host: the cards are text"}\x1b[K`;
+    cells += `\x1b[${rows};1H${s.mode === "native" ? "hotty host: the cards are surfaces" : "not a hotty host: the cards are text"}\x1b[K`;
     s.layout(wants);
     s.watch(cells);
     t.send("\x1b[?2026h" + cells + s.flush() + "\x1b[?2026l");

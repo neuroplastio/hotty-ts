@@ -1,17 +1,17 @@
 # hotty-ts
 
-hotty-ts is the TypeScript SDK for [HOTTY](https://github.com/neuroplastio/hotty),
-HTML Over The TTY, for Node and Bun. With it, a terminal program shows small
+hotty-ts is the TypeScript SDK for [hotty](https://github.com/neuroplastio/hotty),
+HTML over the TTY, for Node and Bun. With it, a terminal program shows small
 HTML documents, called surfaces, on rectangles of cells, and hears what the
 user does in them. It follows the hotty repository's SDK.md: the same two
 layers, names and defaults as the other SDKs, and every SDK section of the
 conformance vectors.
 
-It speaks HOTTY 0.4: a host's replies and events carry msgpack bodies
+It speaks hotty 0.4: a host's replies and events carry msgpack bodies
 (SPEC §3.3), its query lists the version it speaks (`a=q:n=1:v=0.4`,
 SPEC §4), and keys are named as myelin key names 0.1 names them (SPEC
 §10.4): `ctrl+a`, `arrow_left`, `shift+g`, and `mod+s` in a binding. A
-terminal of another HOTTY version, a 0.3 one included, is no host to it,
+terminal of another hotty version, a 0.3 one included, is no host to it,
 and the program draws in cells. Moving a program from 0.3 is CHANGES.md's
 "Upgrading from 0.3" in the hotty repository.
 
@@ -61,7 +61,7 @@ h.surface("hello-hello")?.text(); // "Hello, HTML in the terminal."
 | `@neuroplastio/hotty/terminal` | `Terminal`, for a program with a terminal: one that prints documents and exits, asks a question, or streams a chart | §4.1 |
 | `@neuroplastio/hotty/session` | `Session`, for a UI framework's adapter: modes, layout, relayout, limits, messages | §4.3 |
 | `@neuroplastio/hotty/link` | `Link`, what `Terminal` and `Session` stand on: for an environment that reads the terminal itself and hands over what it reads | §4.2 |
-| `@neuroplastio/hotty/test` | `Host`, a HOTTY host that runs inside a test. Needs parse5 (an optional peer dependency) | §4.4 |
+| `@neuroplastio/hotty/test` | `Host`, a hotty host that runs inside a test. Needs parse5 (an optional peer dependency) | §4.4 |
 
 Only `@neuroplastio/hotty/test` has a dependency. The rest uses the runtime's
 own modules (`node:fs`, `node:tty`, `node:zlib`), which Node and Bun both have,
@@ -121,7 +121,7 @@ Some environments parse their input themselves and hand over complete
 sequences. OpenTUI is one: it may keep the DA1 answers for itself, and it
 writes between its frames. For those, the `Session` stands on a `Link`
 instead of a `Terminal`. The adapter calls `link.osc(seq)` with each OSC,
-which returns whether it was HOTTY's, and `link.da1()` with a DA1 answer it
+which returns whether it was hotty's, and `link.da1()` with a DA1 answer it
 does not keep. Detection then decides on the reply to the query alone, and is
 done 300 ms later. A byte stream goes to `link.bytes(chunk)`.
 
@@ -153,7 +153,7 @@ for (const key of decodeKeys(read)) {
 
 ## Examples
 
-Each one shows its HOTTY part in the open, and each is tested against the
+Each one shows its hotty part in the open, and each is tested against the
 test host (`test/examples.test.ts`):
 
 | example | what it shows |
@@ -212,7 +212,7 @@ keepCursor })`.
   undefined what it would fill: `caps()`, an error's `code` and `detail`,
   `fields()`. The message stands.
 - **msgpack** is read by the SDK's own decoder, not a package: JavaScript
-  has one number type, and a reader of HOTTY's bodies keeps floats apart
+  has one number type, and a reader of hotty's bodies keeps floats apart
   from ints. `unpack(bytes)` gives plain values, as an event's `detail` and a
   message's `body()` have them, and with `{ floats: true }` each float as a
   `Float`. A timestamp

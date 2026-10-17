@@ -21,7 +21,7 @@ function int(s: string | undefined): number | undefined {
 }
 
 /**
- * One HOTTY message, decoded: a reply or an event from the host, or a
+ * One hotty message, decoded: a reply or an event from the host, or a
  * command from a program (what a host, or a test, decodes). Its control
  * has no `m` or `o`.
  */

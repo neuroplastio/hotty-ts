@@ -49,7 +49,7 @@ describe("examples", () => {
     assert.deepEqual([e.h.errors(), e.stderr.text], [[], ""]);
     const t = env("hello", { text: true });
     assert.equal(await hello.run(t), 0);
-    assert.match(t.stdout.text, /not a HOTTY host/);
+    assert.match(t.stdout.text, /not a hotty host/);
     const none = { ...env("hello"), open: noTerminal };
     assert.equal(await hello.run(none), 0);
     assert.equal(none.stdout.text, "Hello.\n");

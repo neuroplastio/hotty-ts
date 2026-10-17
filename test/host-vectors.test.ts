@@ -157,7 +157,7 @@ describe("host vectors", () => {
           return;
         }
         if (st.write !== undefined) {
-          // What the program writes that is not HOTTY's: this host is a
+          // What the program writes that is not hotty's: this host is a
           // terminal, and takes it as one.
           h.write(st.write);
           return;

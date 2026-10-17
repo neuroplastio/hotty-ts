@@ -1,8 +1,8 @@
 /**
- * HOTTY for a program that is not a full-screen framework's: a command
+ * hotty for a program that is not a full-screen framework's: a command
  * that prints documents and exits, one that asks a question, a chart that
  * streams (SDK.md §4.1). A Terminal is the process's terminal: it finds out
- * whether the terminal is a HOTTY host, names surfaces so that two runs
+ * whether the terminal is a hotty host, names surfaces so that two runs
  * never share one, writes commands, and reads what comes back.
  *
  * ```ts
@@ -21,7 +21,7 @@
  * ```
  *
  * Everything the terminal sends is read once, by the Terminal: keys, the
- * mouse, pastes, and HOTTY replies and events. What a call waits for goes
+ * mouse, pastes, and hotty replies and events. What a call waits for goes
  * to that call (detect's answer, a fence's DA1, a request's numbered
  * reply); the rest goes to the input stream ({@link Link.events}), in
  * order. Keys come as the bytes the terminal sent: decoding them is the

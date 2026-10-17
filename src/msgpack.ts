@@ -1,7 +1,7 @@
 // msgpack (https://github.com/msgpack/msgpack/blob/master/spec.md), the
 // form of a host's bodies (SPEC §3.3): a reader, and a writer for the test
 // host. Here rather than from a package, since JavaScript has one number
-// type: a reader of HOTTY's bodies keeps msgpack's floats apart from its
+// type: a reader of hotty's bodies keeps msgpack's floats apart from its
 // ints (an int field sent as 7.0 is the wrong type), and a writer is told
 // which numbers are floats, so that 2.0 goes out as one.
 
@@ -24,7 +24,7 @@ export class Float {
 /**
  * A time, as msgpack's timestamp carries it (extension −1, SPEC §3.3):
  * seconds since 1970-01-01T00:00:00Z, and nanoseconds into the second. No
- * field of HOTTY 0.2 carries one.
+ * field of hotty 0.2 carries one.
  */
 export class Time {
   /** Seconds since the Unix epoch, negative before it. */

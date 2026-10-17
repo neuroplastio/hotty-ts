@@ -1,5 +1,5 @@
 """Runs a command on a pty that is its controlling terminal, and answers as a
-HOTTY host does: the query with the reply in a file, DA1, and the cursor's
+hotty host does: the query with the reply in a file, DA1, and the cursor's
 position. Prints the exit status and everything the command wrote, as JSON.
 
     python3 pty-driver.py tty|pipe REPLY-FILE COMMAND...

@@ -1,5 +1,5 @@
 /**
- * A HOTTY host that runs inside a test (SDK.md §4.4), so that a program's
+ * A hotty host that runs inside a test (SDK.md §4.4), so that a program's
  * tests need no terminal. The program writes to it and reads from it as it
  * would a terminal; the test then looks at what the program showed, and
  * plays the user:

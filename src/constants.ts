@@ -1,6 +1,6 @@
 // The protocol's numbers and named values (SDK.md §3.1).
 
-/** HOTTY's OSC number: the ASCII codes of H and O. */
+/** hotty's OSC number: the ASCII codes of H and O. */
 export const NUMBER = "7279";
 /** The most base64 bytes one sequence carries (SPEC §3.4). */
 export const CHUNK = 4096;

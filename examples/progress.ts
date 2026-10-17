@@ -3,7 +3,7 @@
 //
 // It shows the cheap way to change a surface many times a second: one delta
 // whose ops move the bar (a custom property) and change the labels (text),
-// a few dozen bytes each, which the host shows together (SPEC §6.1). Where the terminal is not a HOTTY
+// a few dozen bytes each, which the host shows together (SPEC §6.1). Where the terminal is not a hotty
 // host, the line is redrawn with a carriage return; into a pipe, a line per
 // step.
 //

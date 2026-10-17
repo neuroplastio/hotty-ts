@@ -7,7 +7,7 @@
 // program's while it asks: it takes the keyboard (a=focus), reports a
 // submit, and lets Escape through to the program (SPEC §10). Then a
 // detached summary replaces it, so that nothing is left that reports to
-// the shell (SPEC §5.5). Where the terminal is not a HOTTY host, it asks a
+// the shell (SPEC §5.5). Where the terminal is not a hotty host, it asks a
 // question a line. Either way the questions go to the terminal and only
 // the answers to stdout.
 //

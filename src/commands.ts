@@ -111,7 +111,7 @@ function command(ctl: Control, payload: Uint8Array | string | undefined, def: Qu
 /** Options of {@link query}. */
 export interface QueryOptions {
   /**
-   * Ask for a late answer (`late=1`, SPEC §4): what passes HOTTY through
+   * Ask for a late answer (`late=1`, SPEC §4): what passes hotty through
    * and has no host yet, such as a multiplexer's pane with no terminal
    * attached, may answer once there is one. {@link withdrawLate} takes it
    * back.
@@ -120,7 +120,7 @@ export interface QueryOptions {
 }
 
 /**
- * Asks whether the terminal is a HOTTY host that speaks {@link VERSION},
+ * Asks whether the terminal is a hotty host that speaks {@link VERSION},
  * fenced by Primary Device Attributes (SPEC §4): `a=q:n=<n>:v=0.4`. A host
  * replies to the query, numbered n, before the DA1 answer every terminal
  * sends: its capabilities, or EVERSION when it speaks no version the query

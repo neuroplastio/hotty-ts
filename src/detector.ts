@@ -28,7 +28,7 @@ export interface DetectorOptions {
 }
 
 /**
- * Decides whether the terminal is a HOTTY host this SDK can use (SPEC §4).
+ * Decides whether the terminal is a hotty host this SDK can use (SPEC §4).
  * A reply to the query makes it one when it is `a=ok` and its capabilities
  * decode and name {@link VERSION}; any other reply to the query, an error
  * (EVERSION or another) or capabilities that do not decode (a 0.1 host's
