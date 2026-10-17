@@ -25,4 +25,4 @@ neuroplastio/hotty. This repository implements them and must not grow them.
   `Terminal` and `Session` are not shaped around it. Reason about placement
   lifetime from SPEC §5.4 and SDK.md §4.3, not from any host's internals.
 - **Don't publish** to npm. The first release, 0.1.0, is the maintainer's
-  call, once the repository is public.
+  call. The repository is public (the maintainer, 2026-10-18).

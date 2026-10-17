@@ -15,8 +15,8 @@ terminal of another hotty version, a 0.3 one included, is no host to it,
 and the program draws in cells. Moving a program from 0.3 is CHANGES.md's
 "Upgrading from 0.3" in the hotty repository.
 
-The package is `@neuroplastio/hotty`. It is not published yet: the first
-release will be 0.1.0, once the repository is public.
+The package is `@neuroplastio/hotty`. It is not on npm yet: the first
+release will be 0.1.0.
 
 ```ts
 import { NoTerminalError, Terminal } from "@neuroplastio/hotty/terminal";
