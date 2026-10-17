@@ -148,6 +148,8 @@ function build(b: Any): string {
       return hotty.menuShow(a.keys, ro);
     case "menu_hide":
       return hotty.menuHide(ro);
+    case "touch":
+      return hotty.touch(a.areas, ro);
     case "sync":
       return hotty.sync(...a.commands.map(build));
   }

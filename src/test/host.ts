@@ -1,7 +1,7 @@
 // A HOTTY host that runs inside a test (SDK.md §4.4).
 
 import { CAPS, DETAIL, ERROR } from "../bodies.ts";
-import { deltaOf, menuFind, menuLevelOf, menuOf, menuShowOf, type MenuItem, type MenuTree, type Op } from "../commands.ts";
+import { deltaOf, menuFind, menuLevelOf, menuOf, menuShowOf, touchOf, type MenuItem, type MenuTree, type Op, type TouchArea } from "../commands.ts";
 import { MAX_SIZE, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER, VERSION } from "../constants.ts";
 import { DEFAULT_MAX, Decoder } from "../decoder.ts";
 import { encode } from "../encode.ts";
@@ -160,7 +160,9 @@ function estimateRows(s: Surface, cols: number): number {
  * graphics query. It keeps the cells the program printed (screen, lines)
  * and where it left the cursor. A placement made on the alternate screen
  * goes with it, and so does its surface; a full reset deletes every
- * surface (SPEC §5.4).
+ * surface (SPEC §5.4). It keeps the touch areas the program names for each
+ * screen, and checks them as a host does (touchAreas, SPEC §9.6); no
+ * finger reaches them.
  */
 export class Host implements AsyncIterable<Uint8Array> {
   readonly cols: number;
@@ -172,6 +174,7 @@ export class Host implements AsyncIterable<Uint8Array> {
   #menus: [MenuTree | undefined, MenuTree | undefined] = [undefined, undefined]; // the program's menu on the main and the alternate screen
   #shown = false; // the program shows a level of it (a=menu:show=1)
   #menuSeq: string[] = []; // the keys of the level shown
+  #touch: [TouchArea[], TouchArea[]] = [[], []]; // the program's touch areas (a=touch) on the main and the alternate screen
   #prefix: Surface | undefined; // the surface whose keys all reach the program, while it has the keyboard (SPEC §10.5)
   #text: boolean;
   #late: Message | undefined; // a query asking for a late answer, held while not a host
@@ -405,9 +408,13 @@ export class Host implements AsyncIterable<Uint8Array> {
   #altScreen(on: boolean) {
     if (on !== this.#alt) {
       // The screen changed: the level shown hides, and leaving the
-      // alternate screen drops its menu (SPEC §10.7).
+      // alternate screen drops its menu (SPEC §10.7) and its touch areas
+      // (SPEC §9.6).
       this.#shown = false;
-      if (this.#alt) this.#menus[1] = undefined;
+      if (this.#alt) {
+        this.#menus[1] = undefined;
+        this.#touch[1] = [];
+      }
     }
     if (!on && this.#alt) {
       for (const [name, s] of this.#surfaces) {
@@ -426,13 +433,14 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#alt = on;
   }
 
-  // RIS: a full reset deletes every surface (SPEC §5.4), and forgets a
-  // held late query (§4).
+  // RIS: a full reset deletes every surface (SPEC §5.4), drops both
+  // screens' touch areas (§9.6), and forgets a held late query (§4).
   #reset() {
     this.#late = undefined;
     this.#surfaces.clear();
     this.#keyboard = undefined;
     this.#menus = [undefined, undefined];
+    this.#touch = [[], []];
     this.#shown = false;
     this.#scr = new Screen(this.cols, this.rows);
     this.#alt = false;
@@ -571,6 +579,17 @@ export class Host implements AsyncIterable<Uint8Array> {
       // without the feature takes no a=menu.
       if (!this.caps.has("menu")) return err("EINVAL", "no menus here");
       return this.#menuCommand(m);
+    }
+    if (a === "touch") {
+      // The cells where a finger drags as the mouse, kept for the screen
+      // it is sent on (SPEC §9.6). No finger reaches them here.
+      try {
+        this.#touch[this.#screen()] = touchOf(m);
+      } catch (e) {
+        if (!(e instanceof HottyError)) throw e;
+        return err(e.code, e.detail ?? "");
+      }
+      return ok;
     }
     if (!["doc", "place", "hide", "delta", "del", "detach", "focus", "blur"].includes(a)) return err("EINVAL", "unknown action " + a);
     const name = m.get("s");
@@ -1599,6 +1618,18 @@ export class Host implements AsyncIterable<Uint8Array> {
    */
   menu(): MenuTree | undefined {
     return this.#menus[this.#screen()];
+  }
+
+  /**
+   * The touch areas the program keeps on the screen it is on (`a=touch`,
+   * SPEC §9.6), in the order it listed them: empty when it has none. It
+   * sent none, or an `a=touch` with no areas, or they were the alternate
+   * screen's and the program left it, or a reset dropped them. An `a=touch`
+   * whose body is no map of areas is EINVAL, and leaves the areas as they
+   * were.
+   */
+  touchAreas(): TouchArea[] {
+    return this.#touch[this.#screen()].map((a) => ({ ...a }));
   }
 
   /**

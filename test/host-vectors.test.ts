@@ -1,4 +1,4 @@
-// The host vectors' send, inspect, key and menu steps (SDK.md §4.4), against
+// The host vectors' send, write, inspect, key and menu steps (SDK.md §4.4), against
 // the test host. It lays nothing out, so the rows it gives r=auto are an
 // estimate, and the vectors' pointer steps, the events that follow from a
 // layout, and the vectors that need one (scroll, steps, drop and view) are
@@ -49,8 +49,8 @@ function sent(h: Host): { replies: Reply[]; events: Event[] } {
 // What a vector may require of this host (conformance/README.md, SDK.md
 // §4.4): the features it reports, whose pointer and key steps it skips all
 // the same, since it lays nothing out. A vector that requires anything
-// else, scroll, steps, drop, view, touch, undo, passthrough or commands, is
-// skipped.
+// else, scroll, steps, drop, view, touch, mouse, undo, passthrough or
+// commands, is skipped.
 const implements_ = new Set(["hover", "count", "menu"]);
 const requires = (v: Any): string[] => [v.requires ?? []].flat();
 
@@ -117,7 +117,7 @@ describe("host vectors", () => {
     // Keys are pressed only in vectors with no pointer, and that require
     // nothing but menus: this host lays nothing out, so where a pointer is
     // says nothing here, and it has no passthrough and scrolls nothing.
-    const pointer = v.steps.some((st: Any) => st.pointer);
+    const pointer = v.steps.some((st: Any) => st.pointer || st.touch);
     const keys = requires(v).every((r) => r === "menu") && !pointer;
     // The fit vectors size a document by the cell, which this host does not
     // lay out: it estimates the rows.
@@ -154,6 +154,12 @@ describe("host vectors", () => {
             const got = e.children.map((c) => [c.tag, c.id ?? null, c.text]);
             assert.deepEqual(got, st.expect.children, `step ${i}: children`);
           }
+          return;
+        }
+        if (st.write !== undefined) {
+          // What the program writes that is not HOTTY's: this host is a
+          // terminal, and takes it as one.
+          h.write(st.write);
           return;
         }
         if (!st.send) return; // a pointer or touch step

@@ -1,6 +1,6 @@
 // What a host or a relay reads of a program's 0.4 commands, which the SDK
-// sections of the vectors do not cover: a delta's ops (SPEC §6.1) and a menu
-// (SPEC §10.7), and the builders that make them.
+// sections of the vectors do not cover: a delta's ops (SPEC §6.1), a menu
+// (SPEC §10.7) and touch areas (SPEC §9.6), and the builders that make them.
 
 import assert from "node:assert/strict";
 
@@ -29,11 +29,16 @@ import {
   replace,
   revealOp,
   text,
+  touch,
+  TOUCH_MAX,
+  touchOf,
   unattr,
   varOp,
+  Float,
   type MenuItem,
   type MenuTree,
   type Op,
+  type TouchArea,
 } from "../src/index.ts";
 import { pack } from "../src/msgpack.ts";
 import { encode } from "../src/encode.ts";
@@ -217,5 +222,48 @@ describe("menu", () => {
     assert.equal(menuFind(undefined, "quit"), undefined);
     const dup: MenuTree = { items: [{ label: "A", items: [{ name: "x", label: "deep" }] }, { name: "x", label: "late" }] };
     assert.equal(menuFind(dup, "x")?.label, "deep");
+  });
+});
+
+describe("touch", () => {
+  test("touchOf reads what touch sends; no body, or no areas, leaves none", () => {
+    const areas: TouchArea[] = [
+      { c: 2, r: 3, w: 10, h: 1, drag: "x" },
+      { c: 0, r: 5, w: 1, h: 4, drag: "y" },
+      { c: 0, r: 0, w: 1, h: 1, drag: "xy" },
+    ];
+    assert.deepEqual(touchOf(received(touch(areas))), areas);
+    assert.deepEqual(touchOf(received(touch())), []);
+    assert.equal(received(touch()).payload.length, 0, "no areas, no payload");
+    assert.deepEqual(touchOf(received(encode([["a", "touch"]], pack({ areas: [], more: 1 })))), []);
+    const many: TouchArea[] = Array.from({ length: TOUCH_MAX }, (_, i) => ({ c: i, r: 0, w: 1, h: 1, drag: "x" }));
+    assert.equal(touchOf(received(touch(many))).length, TOUCH_MAX);
+  });
+
+  test("touchOf refuses what is no map of areas (EINVAL)", () => {
+    const bad = (payload: Uint8Array): string | undefined => {
+      try {
+        touchOf(received(encode([["a", "touch"]], payload)));
+      } catch (e) {
+        assert.ok(e instanceof HottyError);
+        assert.equal(e.code, "EINVAL");
+        return e.detail;
+      }
+      return undefined;
+    };
+    const area = { c: 0, r: 0, w: 1, h: 1, drag: "x" };
+    assert.equal(bad(pack(["x"])), "body is no map of areas");
+    assert.equal(bad(new Uint8Array([0xc1])), "body is no map of areas");
+    assert.equal(bad(pack({})), "body is no map of areas");
+    assert.equal(bad(pack({ areas: { c: 0 } })), "body is no map of areas");
+    assert.equal(bad(pack({ areas: [1] })), "an area without a field, or with one of another type");
+    assert.equal(bad(pack({ areas: [{ c: 0, r: 0, w: 1, drag: "x" }] })), "an area without a field, or with one of another type");
+    assert.equal(bad(pack({ areas: [{ ...area, c: new Float(1) }] })), "an area without a field, or with one of another type");
+    assert.equal(bad(pack({ areas: [{ ...area, drag: 1 }] })), "an area without a field, or with one of another type");
+    assert.equal(bad(pack({ areas: [{ ...area, r: -1 }] })), "c or r under 0");
+    assert.equal(bad(pack({ areas: [{ ...area, h: 0 }] })), "w or h under 1");
+    assert.equal(bad(pack({ areas: [{ ...area, drag: "yx" }] })), "drag yx");
+    assert.equal(bad(pack({ areas: Array.from({ length: TOUCH_MAX + 1 }, () => area) })), "more than 256 areas");
+    assert.throws(() => touchOf(received(menuHide())), HottyError, "not a touch command");
   });
 });

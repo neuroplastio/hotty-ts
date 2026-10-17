@@ -56,7 +56,7 @@ h.surface("hello-hello")?.text(); // "Hello, HTML in the terminal."
 
 | import | what it is | SDK.md |
 | --- | --- | --- |
-| `@neuroplastio/hotty` | the wire layer: builders (with the op builders `text`, `attr`, `varOp`, … and the menu's), `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, `unpack` for msgpack, what a host or a relay reads of a program's commands (`deltaOf`, `menuOf`, `menuShowOf`, `menuLevelOf`, `menuFind`), and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
+| `@neuroplastio/hotty` | the wire layer: builders (with the op builders `text`, `attr`, `varOp`, …, the menu's and `touch`), `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, `unpack` for msgpack, what a host or a relay reads of a program's commands (`deltaOf`, `menuOf`, `menuShowOf`, `menuLevelOf`, `menuFind`, `touchOf`), and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
 | `@neuroplastio/hotty/field` | `Field`, a text field's value, caret and selection edited by SPEC §10.2's actions, for a program that draws its fields in cells | §4.6 |
 | `@neuroplastio/hotty/terminal` | `Terminal`, for a program with a terminal: one that prints documents and exits, asks a question, or streams a chart | §4.1 |
 | `@neuroplastio/hotty/session` | `Session`, for a UI framework's adapter: modes, layout, relayout, limits, messages | §4.3 |
@@ -91,6 +91,12 @@ and a pick, from a multiplexer's palette or an agent, reaches it as a
 `command` event with the item's `name`. A host asks of its capabilities `caps.has("menu")`, and of a
 host's `caps` event `caps.merge(ev.changed())`; the `Terminal`, the `Link`
 and the `Session` keep their `caps` current that way.
+
+A program that drags a slider with the mouse in its cells names those cells
+with `touch([{ c, r, w, h, drag: "x" }])`, so that a finger drags it too
+(SPEC §9.6). The areas are the screen's cells, counted from 0, kept per
+screen: it sends them again when what it drew moves, the size changes or it
+switches screens, and `touch()` when it ends.
 
 ## A framework's adapter
 
@@ -171,8 +177,8 @@ The names are Appendix A's TypeScript column: `placeAt`, `setText`, `reveal`,
 `Event` `view()`, and on `Caps` `has(feature)`. The op builders are `morph`,
 `inner`, `replace`, `append`, `prepend`, `before`, `after`, `remove`, `attr`,
 `unattr`, `text`, `varOp` and `revealOp`; an `Op` is `{ op, target, key,
-value }`, and a menu is `{ label, items }` of `{ key, label, name, enabled,
-items }`. Options are
+value }`, a menu is `{ label, items }` of `{ key, label, name, enabled,
+items }`, and a touch area `{ c, r, w, h, drag }`. Options are
 objects: `doc(s, html, { detached: true, q: 0 })`, `place(s, { cols, rows,
 keepCursor })`.
 
@@ -239,13 +245,14 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
   declares every `requires`. Characters are grapheme clusters, from
   `Intl.Segmenter`, which Node and Bun both have (`graphemes`).
 - **Host section.** The test host runs the commands, the inspections, the
-  keys and the menu steps of the host vectors (`Host.key`, `Host.shown`,
-  `Host.pick`). It has the features `hover`, `count` and `menu`, and lays
+  keys, the menu steps and the writes of the host vectors (`Host.key`,
+  `Host.shown`, `Host.pick`), and keeps the touch areas a program sends for
+  each screen (`Host.touchAreas`). It has the features `hover`, `count` and `menu`, and lays
   nothing out, so the rows it gives `r=auto` are an estimate and are not
   checked, and an event's `area` is not either; `reveal` answers as a host
   does and scrolls nothing, and it sends no `view`. It skips the vectors
-  that require `scroll`, `steps`, `drop`, `view`, `touch`, `undo`,
-  `passthrough` or `commands` (SDK.md §4.4). The vectors' pointer steps
+  that require `scroll`, `steps`, `drop`, `view`, `touch`, `mouse`,
+  `undo`, `passthrough` or `commands` (SDK.md §4.4). The vectors' pointer steps
   (drags, presses, hover) and the events that follow from a layout are not
   run: a vector whose every check is in such steps is reported as skipped.
   An event's detail is compared each value of its type: the vectors' floats

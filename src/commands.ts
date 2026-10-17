@@ -434,6 +434,49 @@ export function menuHide(opts?: ReplyOptions): string {
   return command(new Control([["a", "menu"], ["show", 0]]), undefined, NO_REPLY, opts);
 }
 
+/**
+ * Cells of the screen where a finger drags as the mouse does ({@link touch},
+ * SPEC §9.6).
+ */
+export interface TouchArea {
+  /** The first column it covers, counted from 0 at the screen's left (a mouse report counts from 1). */
+  c: number;
+  /** The first row it covers, counted from 0 at the screen's top. */
+  r: number;
+  /** The columns it spans, at least 1. */
+  w: number;
+  /** The rows it spans, at least 1. */
+  h: number;
+  /** The way a finger drags in it: "x" across, "y" up and down, "xy" either. A horizontal slider's is "x". */
+  drag: "x" | "y" | "xy";
+}
+
+/** How many areas an `a=touch` may name (SPEC §9.6). A body with more is EINVAL. */
+export const TOUCH_MAX = 256;
+
+/**
+ * Names the cells where a finger drags as the mouse does (SPEC §9.6), so
+ * that what the program drags with the mouse in its cells, a slider, a
+ * finger drags too. While the program has the terminal report the mouse's
+ * buttons, a touch that begins in an area and first moves the way it drags
+ * is the primary button: pressed where it began, moved with the finger,
+ * released where it lifts. A tap there presses and releases. Elsewhere, and
+ * the other way, a finger scrolls as it did.
+ *
+ * The areas last until the program sends others; with none it leaves none.
+ * They are cells of the screen they are sent on: the main and the alternate
+ * screen keep their own, leaving the alternate screen drops its, and a full
+ * reset drops both. So the program sends them again when what it drew
+ * moves, the terminal's size changes, or it switches screens, and sends
+ * `touch()` when it ends. Keep to {@link TOUCH_MAX} areas, `w` and `h` at
+ * least 1. A host that takes no touch accepts it, and nothing comes of it.
+ */
+export function touch(areas: readonly TouchArea[] = [], opts?: ReplyOptions): string {
+  if (areas.length === 0) return command(new Control([["a", "touch"]]), undefined, NO_REPLY, opts);
+  const body = { areas: areas.map((a) => ({ c: a.c, r: a.r, w: a.w, h: a.h, drag: a.drag })) };
+  return command(new Control([["a", "touch"]]), pack(body), NO_REPLY, opts);
+}
+
 /** Takes the keyboard back from a surface. Its focused control commits first, so a change may come before blur. */
 export function blur(surface: string, opts?: ReplyOptions): string {
   return command(new Control([["a", "blur"], ["s", surface]]), undefined, NO_REPLY, opts);
@@ -577,6 +620,35 @@ export function menuShowOf(m: Message): string[] {
   const seq = body?.seq;
   if (body === undefined || (seq !== undefined && (!Array.isArray(seq) || !seq.every(isStr)))) throw invalid(m, "seq is not an array of str");
   return [...((seq as string[] | undefined) ?? [])];
+}
+
+/**
+ * Reads an `a=touch` command's areas (SPEC §9.6), as a host or a relay
+ * does: an empty list for a command with no body or no areas, which leaves
+ * none. A body that is no map of areas, an area without a field or with one
+ * of another type (an int sent as a float among them), `c` or `r` under 0,
+ * `w` or `h` under 1, a `drag` other than "x", "y" and "xy", or more than
+ * {@link TOUCH_MAX} areas throws a {@link HottyError} with code EINVAL.
+ */
+export function touchOf(m: Message): TouchArea[] {
+  if (m.get("a") !== "touch") throw invalid(m, "not a touch command");
+  if (m.payload.length === 0) return [];
+  let body: unknown;
+  try {
+    body = unpack(m.payload, { floats: true });
+  } catch {
+    throw invalid(m, "body is no map of areas");
+  }
+  if (!isMap(body) || !Array.isArray(body.areas)) throw invalid(m, "body is no map of areas");
+  if (body.areas.length > TOUCH_MAX) throw invalid(m, "more than 256 areas");
+  const isInt = (v: unknown): v is number => typeof v === "number";
+  return body.areas.map((a: unknown) => {
+    if (!isMap(a) || !isInt(a.c) || !isInt(a.r) || !isInt(a.w) || !isInt(a.h) || !isStr(a.drag)) throw invalid(m, "an area without a field, or with one of another type");
+    if (a.c < 0 || a.r < 0) throw invalid(m, "c or r under 0");
+    if (a.w < 1 || a.h < 1) throw invalid(m, "w or h under 1");
+    if (a.drag !== "x" && a.drag !== "y" && a.drag !== "xy") throw invalid(m, "drag " + a.drag);
+    return { c: a.c, r: a.r, w: a.w, h: a.h, drag: a.drag };
+  });
 }
 
 /**

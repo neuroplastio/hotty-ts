@@ -29,9 +29,13 @@ import {
   text,
   SCROLL_HORIZONTAL,
   SCROLL_VERTICAL,
+  touch,
+  TOUCH_MAX,
+  type TouchArea,
   unpack,
   withdrawLate,
 } from "../src/index.ts";
+import { pack } from "../src/msgpack.ts";
 import { Host } from "../src/test/index.ts";
 import { describe, test } from "./harness.ts";
 
@@ -811,6 +815,62 @@ describe("Host 0.4", () => {
     assert.equal(m.replies().at(-1)!.reply()!.code, "EINVAL");
     m.write(encode([["a", "menu"], ["n", "2"]], new Uint8Array([0xc1])));
     assert.equal(m.replies().at(-1)!.reply()!.code, "EINVAL", "a body that is no menu");
+  });
+
+  test("the program's touch areas, per screen: the alternate screen keeps its own, leaving drops them, a reset drops both; no map of areas is EINVAL (SPEC §9.6)", () => {
+    const h = new Host();
+    assert.deepEqual(h.touchAreas(), []);
+    const slider: TouchArea[] = [
+      { c: 2, r: 3, w: 10, h: 1, drag: "x" },
+      { c: 0, r: 5, w: 1, h: 4, drag: "y" },
+    ];
+    h.write(touch(slider));
+    assert.deepEqual(h.touchAreas(), slider);
+    h.touchAreas()[0]!.c = 99;
+    assert.equal(h.touchAreas()[0]!.c, 2, "touchAreas is a copy");
+    h.write("\x1b[?1049h");
+    assert.deepEqual(h.touchAreas(), [], "the alternate screen has its own");
+    const knob: TouchArea[] = [{ c: 1, r: 1, w: 1, h: 1, drag: "xy" }];
+    h.write(touch(knob));
+    assert.deepEqual(h.touchAreas(), knob);
+    h.write("\x1b[?1049l");
+    assert.deepEqual(h.touchAreas(), slider, "the main screen's are back");
+    h.write("\x1b[?1049h");
+    assert.deepEqual(h.touchAreas(), [], "leaving the alternate screen dropped its own");
+    h.write(touch(knob) + "\x1bc");
+    assert.deepEqual(h.touchAreas(), [], "a full reset, on the alternate screen");
+    h.write("\x1b[?1049l");
+    assert.deepEqual(h.touchAreas(), [], "and on the main");
+    h.write(touch(slider) + touch());
+    assert.deepEqual(h.touchAreas(), [], "a=touch with no areas leaves none");
+    // What is no map of areas is EINVAL, and keeps the areas there were.
+    const l = new Host({ lenient: true });
+    l.write(touch(slider));
+    for (const body of [
+      ["x"],
+      {},
+      { areas: { c: 0 } },
+      { areas: [1] },
+      { areas: [{ c: 0, r: 0, w: 1, drag: "x" }] },
+      { areas: [{ c: new Float(1), r: 0, w: 1, h: 1, drag: "x" }] },
+      { areas: [{ c: 0, r: 0, w: 1, h: 1, drag: 1 }] },
+      { areas: [{ c: 0, r: -1, w: 1, h: 1, drag: "x" }] },
+      { areas: [{ c: 0, r: 0, w: 0, h: 1, drag: "x" }] },
+      { areas: [{ c: 0, r: 0, w: 1, h: 1, drag: "yx" }] },
+    ]) {
+      l.write(encode([["a", "touch"], ["n", "1"]], pack(body)));
+      assert.equal(l.replies().at(-1)!.reply()!.code, "EINVAL", JSON.stringify(body));
+      assert.deepEqual(l.touchAreas(), slider, JSON.stringify(body));
+    }
+    const many: TouchArea[] = Array.from({ length: TOUCH_MAX + 1 }, (_, i) => ({ c: i % 80, r: Math.floor(i / 80), w: 1, h: 1, drag: "x" }));
+    l.write(touch(many, { n: 2 }));
+    assert.equal(l.replies().at(-1)!.reply()!.code, "EINVAL", "257 areas");
+    l.write(touch(many.slice(0, TOUCH_MAX), { n: 3 }));
+    assert.equal(l.replies().at(-1)!.reply()!.code, undefined, "256 areas");
+    assert.equal(l.touchAreas().length, TOUCH_MAX);
+    l.write(encode([["a", "touch"], ["n", "4"]], pack({ areas: [], more: 1 })));
+    assert.equal(l.replies().at(-1)!.reply()!.code, undefined, "a key not known");
+    assert.deepEqual(l.touchAreas(), []);
   });
 
   test("without the feature hover the host never says where the pointer is", () => {
