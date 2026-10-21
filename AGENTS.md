@@ -24,6 +24,7 @@ neuroplastio/hotty. This repository implements them and must not grow them.
   and the test host. The kitty graphics polyfill is secondary, and the
   `Terminal` and `Session` are not shaped around it. Reason about placement
   lifetime from SPEC §5.4 and SDK.md §4.3, not from any host's internals.
-- **Don't publish** to npm. The first publish, 0.4.0 (gov P-5 rule 6:
-  MAJOR.MINOR is the spec's), is the maintainer's call. The repository is
+- **Publish only on the maintainer's go-ahead** (gov P-5 rule 5), and only
+  through `.github/workflows/publish.yml`: its version is the spec's
+  MAJOR.MINOR and a PATCH of its own (P-5 rule 6). The repository is
   public (the maintainer, 2026-10-18).

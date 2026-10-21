@@ -15,9 +15,9 @@ terminal of another hotty version, a 0.3 one included, is no host to it,
 and the program draws in cells. Moving a program from 0.3 is CHANGES.md's
 "Upgrading from 0.3" in the hotty repository.
 
-The package is `@neuroplastio/hotty`. It is not on npm yet: its first
-release, 0.4.0, is tagged here (`v0.4.0`), and publishing it is still to
-come.
+```
+npm install @neuroplastio/hotty
+```
 
 0.4.x speaks hotty 0.4; the patch number is this repository's own.
 

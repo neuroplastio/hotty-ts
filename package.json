@@ -1,7 +1,6 @@
 {
   "name": "@neuroplastio/hotty",
   "version": "0.4.0",
-  "private": true,
   "description": "hotty (HTML over the TTY) for TypeScript programs: the wire, a terminal, a framework's session, and a host for tests",
   "type": "module",
   "license": "Apache-2.0",
@@ -35,6 +34,12 @@
     "dist"
   ],
   "sideEffects": false,
+  "scripts": {
+    "prepack": "rm -rf dist && tsc -p tsconfig.build.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22"
   },
@@ -52,6 +57,12 @@
     "parse5": "8.0.1",
     "typescript": "7.0.2"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neuroplastio/hotty-ts.git"
+  },
+  "homepage": "https://github.com/neuroplastio/hotty-ts#readme",
+  "bugs": "https://github.com/neuroplastio/hotty-ts/issues",
   "keywords": [
     "hotty",
     "terminal",
