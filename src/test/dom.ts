@@ -247,6 +247,7 @@ export class Surface {
   values: Map<Node, string> = new Map();
   checked: Map<Node, boolean> = new Map();
   edited: Set<Node> = new Set(); // text controls edited since their last commit
+  revs: Map<Node, number> = new Map(); // controls' revisions, the user's changes counted (SPEC §6.4); absent is 0
   fields: Map<Node, Field> = new Map(); // text fields' carets and selections, once keys edit them
   focusedNode: Element | undefined;
   keyb = false; // the surface has the keyboard
@@ -262,9 +263,38 @@ export class Surface {
     this.values = new Map();
     this.checked = new Map();
     this.edited = new Set();
+    this.revs = new Map();
     this.fields = new Map();
     this.focusedNode = undefined;
     this.keyb = false;
+  }
+
+  /**
+   * The radio buttons that count together (SPEC §6.4): HTML's group, one
+   * name in one form (or in the document, with no form). Any other control
+   * is its own.
+   */
+  group(n: Element): Element[] {
+    const name = attr(n, "name") ?? "";
+    if (!box(n) || (attr(n, "type") ?? "").toLowerCase() !== "radio" || name === "") return [n];
+    const scope: Node = closest(n, (p) => p.tagName === "form") ?? this.doc;
+    const out: Element[] = [];
+    walk(scope, (c) => {
+      if (isElement(c) && box(c) && (attr(c, "type") ?? "").toLowerCase() === "radio" && attr(c, "name") === name) out.push(c);
+    });
+    return out;
+  }
+
+  /** A control's revision (SPEC §6.4): the highest of its radio group's. */
+  rev(n: Element): number {
+    return Math.max(...this.group(n).map((c) => this.revs.get(c) ?? 0));
+  }
+
+  /** Counts a change of the user's: one more than the revision was, for the whole radio group. */
+  bump(n: Element): number {
+    const next = this.rev(n) + 1;
+    for (const c of this.group(n)) this.revs.set(c, next);
+    return next;
   }
 
   /** The document as it is now. */
@@ -398,6 +428,7 @@ export class Surface {
       this.values.delete(c);
       this.checked.delete(c);
       this.edited.delete(c);
+      this.revs.delete(c);
       this.fields.delete(c);
       if (c === this.focusedNode) {
         this.focusedNode = undefined;

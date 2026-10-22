@@ -71,9 +71,9 @@ describe("Caps.merge", () => {
   });
 
   test("any changed field folds in, the cell among them", () => {
-    const c = new Caps({ v: "0.4", cellcss: { w: 9, h: 18 }, features: ["hover"], scale: 1 });
+    const c = new Caps({ v: "0.5", cellcss: { w: 9, h: 18 }, features: ["hover"], scale: 1 });
     const m = c.merge(new Caps({ cellcss: { w: 10, h: 20 }, features: ["hover", "menu"], limits: { surfaces: 8 } }));
-    assert.deepEqual([m.cellCss, m.features, m.limits, m.scale, m.v], [{ w: 10, h: 20 }, ["hover", "menu"], { surfaces: 8 }, 1, "0.4"]);
+    assert.deepEqual([m.cellCss, m.features, m.limits, m.scale, m.v], [{ w: 10, h: 20 }, ["hover", "menu"], { surfaces: 8 }, 1, "0.5"]);
     assert.deepEqual([m.has("menu"), c.has("menu")], [true, false]);
   });
 });

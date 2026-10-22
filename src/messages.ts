@@ -282,6 +282,27 @@ export class Event {
   }
 
   /**
+   * The control's revision (SPEC §6.4) in a change, an input or a caret
+   * event: what {@link setField} sends back as `rev`.
+   */
+  rev(): number | undefined {
+    const k = this.kind;
+    return k === "change" || k === "input" || k === "caret" ? (this.#d?.rev as number | undefined) : undefined;
+  }
+
+  /**
+   * The selection, its anchor and its caret, in bytes of the value's UTF-8
+   * (SPEC §6.4), in an input or a caret event of a field with
+   * `data-on~=caret`.
+   */
+  sel(): [anchor: number, caret: number] | undefined {
+    const k = this.kind;
+    if (k !== "input" && k !== "caret") return undefined;
+    const s = this.#d?.sel as number[] | undefined;
+    return s === undefined || s.length !== 2 ? undefined : [s[0]!, s[1]!];
+  }
+
+  /**
    * A submit's fields in tree order, each a name and a value: two fields of
    * one name are two pairs (SPEC §9). A detail whose pair is not two strs
    * does not decode.
@@ -434,7 +455,7 @@ const isEmpty = (v: unknown): boolean => {
  * the SDK does not know is in raw.
  */
 export class Caps {
-  /** The protocol version the host answers in (SPEC §4): "0.4", for a host this SDK uses. */
+  /** The protocol version the host answers in (SPEC §4): "0.5", for a host this SDK uses. */
   readonly v: string | undefined;
   /** A cell's size in CSS pixels (SPEC §5.3); undefined when the host did not say. */
   readonly cellCss: { w: number; h: number } | undefined;
@@ -478,7 +499,7 @@ export class Caps {
 
   /**
    * Whether the host has an optional feature (SPEC §4): `passthrough`,
-   * `hover`, `count` or `menu`. Everything else a 0.4 host does.
+   * `hover`, `count` or `menu`. Everything else a 0.5 host does.
    */
   has(feature: Feature | (string & {})): boolean {
     return this.features.includes(feature);

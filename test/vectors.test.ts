@@ -148,6 +148,8 @@ function build(b: Any): string {
       return hotty.menuShow(a.keys, ro);
     case "menu_hide":
       return hotty.menuHide(ro);
+    case "set_field":
+      return hotty.setField(a.surface, a.target, a.change, ro);
     case "touch":
       return hotty.touch(a.areas, ro);
     case "sync":
@@ -234,6 +236,8 @@ function eventView(e: hotty.Event) {
     target: e.target,
     value: nul(e.value()),
     checked: nul(e.checked()),
+    rev: nul(e.rev()),
+    sel: nul(e.sel()),
     fields: nul(e.fields()),
     mods: e.mods(),
     link: link ? { href: link.href, url: nul(link.url) } : null,

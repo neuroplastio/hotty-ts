@@ -1,6 +1,6 @@
 // The package's version and the hotty version it speaks (gov P-5 rule 6):
-// an SDK's MAJOR.MINOR is the spec's, and its PATCH its own. hotty 0.4 is
-// @neuroplastio/hotty 0.4.x. The vectors are VERSION's (vectors.test.ts).
+// an SDK's MAJOR.MINOR is the spec's, and its PATCH its own. hotty 0.5 is
+// @neuroplastio/hotty 0.5.x. The vectors are VERSION's (vectors.test.ts).
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

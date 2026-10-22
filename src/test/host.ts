@@ -5,10 +5,10 @@ import { deltaOf, menuFind, menuLevelOf, menuOf, menuShowOf, touchOf, type MenuI
 import { MAX_SIZE, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER, VERSION } from "../constants.ts";
 import { DEFAULT_MAX, Decoder } from "../decoder.ts";
 import { encode } from "../encode.ts";
-import { Field } from "../field.ts";
+import { chars, Field } from "../field.ts";
 import { decodeKeys, INSERT, keyText, parseKey, parseKeymap, platformOf, readKey, resolve as resolveKeymap } from "../keys.ts";
 import { type Area, Caps, type CapsBody, type Event, HottyError, type Message } from "../messages.ts";
-import { pack } from "../msgpack.ts";
+import { pack, readBody, type Type } from "../msgpack.ts";
 import { validName } from "../names.ts";
 import {
   attr,
@@ -28,6 +28,51 @@ import {
 } from "./dom.ts";
 import { editingHost, keymaps, keySequence, splitName, textField, textInput } from "./keys.ts";
 import { Screen } from "./screen.ts";
+
+// The body of an a=field (SPEC §6.4), by its fields' types.
+const FIELD: Type = { rev: "int", value: "str", from: "int", to: "int", text: "str", sel: ["int"], checked: "bool" };
+
+// Where the code points of a value begin, in bytes of its UTF-8 and in its
+// UTF-16 units, and its end (SPEC §6.4: positions fall between code points).
+function codePoints(v: string): { bytes: number[]; units: number[] } {
+  const bytes: number[] = [];
+  const units: number[] = [];
+  let b = 0;
+  let u = 0;
+  for (const c of v) {
+    bytes.push(b);
+    units.push(u);
+    b += utf8.encode(c).length;
+    u += c.length;
+  }
+  bytes.push(b);
+  units.push(u);
+  return { bytes, units };
+}
+
+// The UTF-16 index of a byte position of v; undefined past its end or inside a code point.
+function unitOf(v: string, pos: number): number | undefined {
+  const { bytes, units } = codePoints(v);
+  const i = bytes.indexOf(pos);
+  return i < 0 ? undefined : units[i];
+}
+
+// The index in grapheme clusters of the cluster that holds a UTF-16 index of v: a place inside one is its start.
+function clusterOf(v: string, unit: number): number {
+  let k = 0;
+  let u = 0;
+  for (const c of chars(v)) {
+    if (u + c.length > unit) break;
+    u += c.length;
+    k++;
+  }
+  return k;
+}
+
+// The byte position of a place counted in grapheme clusters.
+function bytesOf(v: string, cluster: number): number {
+  return utf8.encode(chars(v).slice(0, cluster).join("")).length;
+}
 
 type El = NonNullable<ReturnType<Surface["byId"]>>;
 type AnyNode = Parameters<typeof walk>[0];
@@ -591,7 +636,7 @@ export class Host implements AsyncIterable<Uint8Array> {
       }
       return ok;
     }
-    if (!["doc", "place", "hide", "delta", "del", "detach", "focus", "blur"].includes(a)) return err("EINVAL", "unknown action " + a);
+    if (!["doc", "place", "hide", "delta", "del", "detach", "focus", "blur", "field"].includes(a)) return err("EINVAL", "unknown action " + a);
     const name = m.get("s");
     if (name === undefined || !validName(name)) return err("EINVAL", "bad surface name");
     let s = this.#surfaces.get(name);
@@ -678,8 +723,119 @@ export class Host implements AsyncIterable<Uint8Array> {
       case "blur":
         if (!s.detached && this.#keyboard === s) this.#blur(s);
         return ok;
+      case "field":
+        return this.#field(s, m);
     }
     return ok;
+  }
+
+  // a=field (SPEC §6.4): the whole command is checked before anything
+  // changes, then made against the control's rev. It sends no event, leaves
+  // rev as it is and moves neither focus nor the keyboard.
+  #field(s: Surface, m: Message): { code?: string; detail?: string; extra: [string, string][] } {
+    const ok = { extra: [] as [string, string][] };
+    const err = (code: string, detail: string) => ({ code, detail, extra: [] as [string, string][] });
+    const t = m.get("t");
+    if (t === undefined || t === "") return err("EINVAL", "missing t");
+    if (s.detached) return err("EDETACHED", s.name);
+    const el = s.byId(t);
+    if (!el) return err("ENOTARGET", t);
+    const body = m.payload.length > 0 ? readBody(m.payload, FIELD) : undefined;
+    if (body === undefined || typeof body.rev !== "number") return err("EINVAL", "not an a=field body");
+    const { rev, value, from, to, text, checked } = body as { rev: number; value?: string; from?: number; to?: number; text?: string; checked?: boolean };
+    const sel = body.sel as number[] | undefined;
+    const type = (attr(el, "type") ?? "").toLowerCase();
+    const isBox = box(el);
+    const isSelect = el.tagName === "select";
+    const isText = el.tagName === "textarea" || (el.tagName === "input" && textField(el));
+    const isControl =
+      isBox || isSelect || el.tagName === "textarea" || (el.tagName === "input" && !["hidden", "button", "submit", "reset", "image", "file"].includes(type));
+    if (!isControl) return err("EINVAL", `#${t} is not a control`);
+    const spliced = text !== undefined || from !== undefined || to !== undefined;
+    if (value === undefined && !spliced && sel === undefined && checked === undefined) return err("EINVAL", "no field to change");
+    if (value !== undefined && (isBox || spliced)) return err("EINVAL", "value does not fit");
+    if ((from === undefined) !== (to === undefined) || ((from !== undefined || to !== undefined) && text === undefined)) return err("EINVAL", "from, to and text go together");
+    if (from !== undefined && to !== undefined && from > to) return err("EINVAL", "from is past to");
+    if (sel !== undefined && sel.length !== 2) return err("EINVAL", "sel is not two ints");
+    if (checked !== undefined && !isBox) return err("EINVAL", "checked is for boxes");
+    if ((spliced || sel !== undefined) && !isText) return err("EINVAL", "not a text field");
+    const cur = s.valueOf(el);
+    // The new value, and where text left the caret, in UTF-16 units of it.
+    let next = cur;
+    let caret: number | undefined;
+    if (value !== undefined) {
+      if (isSelect) {
+        let found = false;
+        walk(el, (o) => {
+          if (isElement(o) && o.tagName === "option") found ||= (attr(o, "value") ?? textOf(o)) === value;
+        });
+        if (!found) return err("EINVAL", `no option ${JSON.stringify(value)}`);
+        next = value;
+      } else {
+        next = this.#sanitize(el, value);
+      }
+      caret = next.length;
+    } else if (spliced) {
+      const f = this.#fieldOf(s, el);
+      const [lo, hi] = f.selection();
+      const a = from === undefined ? bytesOf(cur, lo) : from;
+      const b = to === undefined ? bytesOf(cur, hi) : to;
+      const ua = unitOf(cur, a);
+      const ub = unitOf(cur, b);
+      if (ua === undefined || ub === undefined) return err("EINVAL", "a position is past the end or inside a code point");
+      const put = el.tagName === "textarea" ? text! : text!.replace(/[\r\n]/g, "");
+      next = cur.slice(0, ua) + put + cur.slice(ub);
+      caret = ua + put.length;
+    }
+    let anchorAt: number | undefined;
+    if (sel !== undefined) {
+      const ua = unitOf(next, sel[0]!);
+      const uc = unitOf(next, sel[1]!);
+      if (ua === undefined || uc === undefined) return err("EINVAL", "a position is past the end or inside a code point");
+      anchorAt = ua;
+      caret = uc;
+    }
+    if (rev !== s.rev(el)) return err("ESTALE", String(s.rev(el)));
+    if (checked !== undefined) {
+      if (checked) for (const o of s.group(el)) if (o !== el) s.checked.set(o, false);
+      s.checked.set(el, checked);
+      return ok;
+    }
+    if (isSelect) {
+      s.values.set(el, next);
+      return ok;
+    }
+    if (next !== cur) s.values.set(el, next);
+    if (isText) {
+      const f = this.#fieldOf(s, el);
+      f.value = next;
+      const c = clusterOf(next, caret ?? next.length);
+      const a = anchorAt === undefined ? c : clusterOf(next, anchorAt);
+      f.select(a, c);
+    } else if (next !== cur) {
+      s.fields.delete(el);
+    }
+    return ok;
+  }
+
+  // A value as its control keeps it (SPEC §6.4): an input drops line breaks,
+  // a range clamps and steps it, a number that does not parse is empty.
+  #sanitize(el: El, v: string): string {
+    if (el.tagName === "textarea") return v;
+    v = v.replace(/[\r\n]/g, "");
+    const type = (attr(el, "type") ?? "").toLowerCase();
+    if (type === "number") return Number.isFinite(Number(v)) && v.trim() !== "" ? v : "";
+    if (type === "range") {
+      const lo = Number(attr(el, "min") ?? 0);
+      const hi = Math.max(Number(attr(el, "max") ?? 100), lo);
+      const step = Number(attr(el, "step") ?? 1);
+      let n = Number(v);
+      if (!Number.isFinite(n)) n = lo + (hi - lo) / 2;
+      n = Math.min(Math.max(n, lo), hi);
+      if (step > 0) n = Math.min(lo + Math.round((n - lo) / step) * step, hi);
+      return String(n);
+    }
+    return v;
   }
 
   #resBytes(): number {
@@ -801,7 +957,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (!el || !s.edited.has(el)) return;
     s.edited.delete(el);
     const id = attr(el, "id");
-    if (id !== undefined && !s.detached) this.#event(s, "change", id, { value: s.valueOf(el) });
+    if (id !== undefined && !s.detached) this.#event(s, "change", id, { value: s.valueOf(el), rev: s.rev(el) });
   }
 
   #blur(s: Surface) {
@@ -982,9 +1138,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (!control(el) || box(el) || !focusable(el)) throw new HostError("not-control", `#${id} is not a text control`);
     this.#takeKeyboard(s, el, true);
     s.fields.delete(el); // the caret starts at the end of the text again
-    s.values.set(el, text);
-    s.edited.add(el);
-    if (listens("input")(el)) this.#event(s, "input", id, { value: text });
+    this.#typeInto(s, el, text);
   }
 
   /** Sets a checkbox, or chooses a radio button (on must then be true): change comes at once. */
@@ -1006,7 +1160,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     }
     if (s.isChecked(el) === on) return;
     s.checked.set(el, on);
-    this.#event(s, "change", id, { checked: on, value: s.valueOf(el) });
+    this.#event(s, "change", id, { checked: on, value: s.valueOf(el), rev: s.bump(el) });
   }
 
   /** Picks an option of a select by its value, as from its list: input (with data-on~=input) and change come at once. */
@@ -1187,14 +1341,8 @@ export class Host implements AsyncIterable<Uint8Array> {
   // §10.2). A date or time input has the default keymap only.
   #fieldKey(s: Surface, el: El, key: string): boolean {
     const multi = el.tagName === "textarea" || editingHost(el);
-    let f = s.fields.get(el);
-    if (!f) {
-      // The caret starts at the end of the value.
-      const password = (attr(el, "type") ?? "").toLowerCase() === "password";
-      f = new Field({ value: s.valueOf(el), multiline: multi, password });
-      s.fields.set(el, f);
-    }
-    f.value = s.valueOf(el);
+    const f = this.#fieldOf(s, el);
+    const before = this.#sel(s, el);
     const keys = resolveKeymap(platformOf(this.caps), multi, ...(textField(el) ? keymaps(el) : []));
     const a = keys.lookup(key);
     if (a === undefined) return false;
@@ -1218,7 +1366,16 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (a === "paste") return false;
     const changed = a === INSERT ? f.type(keyText(key)!) : keys.selects(key) ? f.extend(a) : f.do(a);
     if (changed) this.#typeInto(s, el, f.value);
+    else this.#moved(s, el, before);
     return true;
+  }
+
+  // Sends caret when the user moved the selection of a field that asks for it (SPEC §9).
+  #moved(s: Surface, el: El, before: [number, number]) {
+    const id = attr(el, "id");
+    if (id === undefined || !listens("caret")(el)) return;
+    const sel = this.#sel(s, el);
+    if (sel[0] !== before[0] || sel[1] !== before[1]) this.#event(s, "caret", id, { sel, rev: s.rev(el) });
   }
 
   // Moves focus to the next focusable element, or the previous one.
@@ -1238,11 +1395,41 @@ export class Host implements AsyncIterable<Uint8Array> {
   }
 
   // Sets a text control's value as typing does.
+  // The edit is one more rev; input carries it, and the selection when the
+  // element listens for caret, which stands for input when it alone is
+  // there (SPEC §9).
   #typeInto(s: Surface, el: El, v: string) {
     s.values.set(el, v);
     s.edited.add(el);
+    const rev = s.bump(el);
     const id = attr(el, "id");
-    if (id !== undefined && listens("input")(el)) this.#event(s, "input", id, { value: v });
+    if (id === undefined) return;
+    const caret = listens("caret")(el);
+    const sel = caret ? this.#sel(s, el) : undefined;
+    if (listens("input")(el)) this.#event(s, "input", id, sel ? { value: v, rev, sel } : { value: v, rev });
+    else if (caret) this.#event(s, "caret", id, { sel, rev });
+  }
+
+  // A text field's selection, its anchor and its caret, in bytes of its value's UTF-8 (SPEC §6.4).
+  #sel(s: Surface, el: El): [number, number] {
+    const f = this.#fieldOf(s, el);
+    const v = s.valueOf(el);
+    const [lo, hi] = f.selection();
+    const back = f.anchor !== undefined && f.anchor > f.caret;
+    const [a, c] = back ? [hi, lo] : [lo, hi];
+    return [bytesOf(v, a), bytesOf(v, c)];
+  }
+
+  // A text field's state, kept with its element; its caret starts at the end of the value.
+  #fieldOf(s: Surface, el: El): Field {
+    let f = s.fields.get(el);
+    if (!f) {
+      const password = (attr(el, "type") ?? "").toLowerCase() === "password";
+      f = new Field({ value: s.valueOf(el), multiline: el.tagName === "textarea" || editingHost(el), password });
+      s.fields.set(el, f);
+    }
+    f.value = s.valueOf(el);
+    return f;
   }
 
   // Space on a box: a checkbox flips, a radio button is chosen.
@@ -1259,34 +1446,35 @@ export class Host implements AsyncIterable<Uint8Array> {
     }
     s.checked.set(el, on);
     const id = attr(el, "id");
-    if (id !== undefined) this.#event(s, "change", id, { checked: on, value: s.valueOf(el) });
+    const rev = s.bump(el);
+    if (id !== undefined) this.#event(s, "change", id, { checked: on, value: s.valueOf(el), rev });
   }
 
   // A key on a select.
   #selectKey(s: Surface, el: El, name: string, text: string | undefined): boolean {
-    const vals: string[] = [];
-    const labels: string[] = [];
+    const all: { v: string; label: string; on: boolean }[] = [];
     walk(el, (o) => {
-      if (!isElement(o) || o.tagName !== "option" || attr(o, "disabled") !== undefined) return;
-      vals.push(attr(o, "value") ?? textOf(o));
-      labels.push(attr(o, "label") ?? textOf(o));
+      if (!isElement(o) || o.tagName !== "option") return;
+      all.push({ v: attr(o, "value") ?? textOf(o), label: attr(o, "label") ?? textOf(o), on: attr(o, "disabled") === undefined });
     });
-    const i = vals.indexOf(s.valueOf(el));
+    // The value may be a disabled option's, which a=field can pick: keys go from its place.
+    const i = all.findIndex((o) => o.v === s.valueOf(el));
+    const enabled = all.map((o, k) => (o.on ? k : -1)).filter((k) => k >= 0);
     let pick = -1;
     if (text !== undefined && name !== "space") {
-      for (let k = 1; k <= vals.length; k++) {
-        const j = (i + k) % vals.length;
-        if (labels[j]!.toLowerCase().startsWith(text.toLowerCase())) {
+      for (let k = 1; k <= all.length; k++) {
+        const j = (i + k) % all.length;
+        if (all[j]!.on && all[j]!.label.toLowerCase().startsWith(text.toLowerCase())) {
           pick = j;
           break;
         }
       }
-    } else if (name === "arrow_down") pick = Math.min(i + 1, vals.length - 1);
-    else if (name === "arrow_up") pick = Math.max(i - 1, 0);
-    else if (name === "home" || name === "page_up") pick = 0;
-    else if (name === "end" || name === "page_down") pick = vals.length - 1;
+    } else if (name === "arrow_down") pick = enabled.find((k) => k > i) ?? -1;
+    else if (name === "arrow_up") pick = enabled.findLast((k) => k < i) ?? -1;
+    else if (name === "home" || name === "page_up") pick = enabled[0] ?? -1;
+    else if (name === "end" || name === "page_down") pick = enabled[enabled.length - 1] ?? -1;
     else if (name !== "space" && name !== "enter") return false;
-    if (pick >= 0 && pick < vals.length && pick !== i) this.#pick(s, el, vals[pick]!);
+    if (pick >= 0 && pick !== i) this.#pick(s, el, all[pick]!.v);
     return true;
   }
 
@@ -1294,10 +1482,11 @@ export class Host implements AsyncIterable<Uint8Array> {
   // change come at once, as a browser's select sends them (SPEC §10.2).
   #pick(s: Surface, el: El, v: string) {
     s.values.set(el, v);
+    const rev = s.bump(el);
     const id = attr(el, "id");
     if (id === undefined) return;
-    if (listens("input")(el)) this.#event(s, "input", id, { value: v });
-    this.#event(s, "change", id, { value: v });
+    if (listens("input")(el)) this.#event(s, "input", id, { value: v, rev });
+    this.#event(s, "change", id, { value: v, rev });
   }
 
   /**

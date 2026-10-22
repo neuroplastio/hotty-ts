@@ -188,14 +188,14 @@ describe("Host bodies", () => {
     h.write(query(1) + focus("nope", "", { n: 2 }));
     const [q, err] = h.replies();
     const body = typed(q!.payload);
-    assert.equal(body.v, "0.4");
+    assert.equal(body.v, "0.5");
     assert.deepEqual(body.scale, new Float(2));
     assert.deepEqual(body.cellcss, { w: new Float(4.5), h: new Float(9) });
     assert.deepEqual(body.features, ["hover", "count", "menu"]);
     assert.deepEqual(body.later, [1, new Float(0.5)]);
     assert.ok(!("host" in body));
     const caps = q!.reply()!.caps()!;
-    assert.deepEqual([caps.v, caps.scale, caps.cellCss, caps.raw.later], ["0.4", 2, { w: 4.5, h: 9 }, [1, 0.5]]);
+    assert.deepEqual([caps.v, caps.scale, caps.cellCss, caps.raw.later], ["0.5", 2, { w: 4.5, h: 9 }, [1, 0.5]]);
     assert.deepEqual([caps.has("menu"), caps.has("passthrough")], [true, false]);
     assert.deepEqual(typed(err!.payload), { code: "ENOENT", detail: "no surface nope" });
     assert.deepEqual([err!.reply()!.code, err!.reply()!.detail], ["ENOENT", "no surface nope"]);
@@ -276,12 +276,12 @@ describe("Host keys", () => {
     h.take();
     for (const k of ["shift+a", "d", "a", "backspace", "space", "shift+a"]) assert.ok(h.key(k), `${k} in a text field`);
     assert.deepEqual(sent(h), [
-      'ev input t=name {"value":"A"}',
-      'ev input t=name {"value":"Ad"}',
-      'ev input t=name {"value":"Ada"}',
-      'ev input t=name {"value":"Ad"}',
-      'ev input t=name {"value":"Ad "}',
-      'ev input t=name {"value":"Ad A"}',
+      'ev input t=name {"value":"A","rev":1}',
+      'ev input t=name {"value":"Ad","rev":2}',
+      'ev input t=name {"value":"Ada","rev":3}',
+      'ev input t=name {"value":"Ad","rev":4}',
+      'ev input t=name {"value":"Ad ","rev":5}',
+      'ev input t=name {"value":"Ad A","rev":6}',
     ]);
     const order: string[] = [];
     for (let i = 0; i < 4; i++) {
@@ -289,7 +289,7 @@ describe("Host keys", () => {
       order.push(s.focused());
     }
     assert.deepEqual(order, ["notes", "ok", "size", "go"]);
-    assert.deepEqual(sent(h), ['ev change t=name {"value":"Ad A"}', "ev focus t=notes", "ev focus t=ok", "ev focus t=size", "ev focus t=go"]);
+    assert.deepEqual(sent(h), ['ev change t=name {"value":"Ad A","rev":6}', "ev focus t=notes", "ev focus t=ok", "ev focus t=size", "ev focus t=go"]);
 
     // shift+tab goes back; a key with ctrl is the program's.
     h.key("shift+tab");
@@ -300,16 +300,16 @@ describe("Host keys", () => {
     // A select picks by the arrows and by the first letter.
     for (const k of ["arrow_down", "l", "home", "arrow_up"]) h.key(k);
     assert.deepEqual(sent(h), [
-      'ev change t=size {"value":"medium"}',
-      'ev change t=size {"value":"large"}',
-      'ev change t=size {"value":"small"}',
+      'ev change t=size {"value":"medium","rev":1}',
+      'ev change t=size {"value":"large","rev":2}',
+      'ev change t=size {"value":"small","rev":3}',
     ]);
 
     // Space checks a checkbox; Enter on a button clicks it.
     for (const k of ["shift+tab", "space", "tab", "tab", "enter"]) h.key(k);
     assert.deepEqual(sent(h), [
       "ev focus t=ok",
-      'ev change t=ok {"checked":true,"value":"yes"}',
+      'ev change t=ok {"checked":true,"value":"yes","rev":1}',
       "ev focus t=size",
       "ev focus t=go",
       "ev click t=go",
@@ -327,7 +327,7 @@ describe("Host keys", () => {
     h.write(focus("s", "name"));
     h.key("enter");
     assert.deepEqual(sent(h), [
-      'ev change t=notes {"value":"h\\ni"}',
+      'ev change t=notes {"value":"h\\ni","rev":3}',
       'ev submit t=f {"fields":[["name","Ad A"],["notes","h\\ni"],["ok","yes"],["size","small"]]}',
     ]);
 
@@ -357,7 +357,7 @@ describe("Host keys", () => {
     // program, and the select picks with it.
     at("s");
     h.key("arrow_down");
-    assert.deepEqual(sent(h), ['ev change t=s {"value":"b"}']);
+    assert.deepEqual(sent(h), ['ev change t=s {"value":"b","rev":1}']);
     // A button uses Space.
     at("b");
     h.key("space");
@@ -366,7 +366,7 @@ describe("Host keys", () => {
     // leaves k to the farther program.
     at("f");
     for (const k of ["j", "k"]) h.key(k);
-    assert.deepEqual(sent(h), ['ev input t=f {"value":"j"}', "k"]);
+    assert.deepEqual(sent(h), ['ev input t=f {"value":"j","rev":1}', "k"]);
     assert.equal(s.focused(), "f");
   });
 
@@ -387,7 +387,7 @@ describe("Host keys", () => {
     old.becomeHost();
     assert.deepEqual(
       old.replies().map((r) => [r.get("a"), r.get("n"), r.reply()!.code, r.reply()!.detail]),
-      [["err", "7", "EVERSION", "0.4"]],
+      [["err", "7", "EVERSION", "0.5"]],
       "answered as any query: one that lists no version is EVERSION",
     );
     const h = new Host({ text: true });
@@ -423,14 +423,14 @@ describe("Host keys", () => {
     for (const k of ["arrow_down", "shift+arrow_down", "end", "space", "enter"]) assert.equal(h.key(k), false, k);
     assert.deepEqual(sent(h), ["\x1b[B\x1b[B\x1b[F \r"]);
     for (const k of ["c", "arrow_up"]) h.key(k);
-    assert.deepEqual(sent(h), ['ev change t=s {"value":"c"}', 'ev change t=s {"value":"b"}']);
+    assert.deepEqual(sent(h), ['ev change t=s {"value":"c","rev":1}', 'ev change t=s {"value":"b","rev":2}']);
 
     // Tab cannot be bound: it moves focus. A nearer binding to another
     // action takes End back, and the select uses it.
     h.key("tab");
     assert.equal(s.focused(), "own");
     for (const k of ["end", "arrow_up", "arrow_down"]) h.key(k);
-    assert.deepEqual(sent(h), ["ev focus t=own", 'ev change t=own {"value":"c"}', "\x1b[A\x1b[B"]);
+    assert.deepEqual(sent(h), ["ev focus t=own", 'ev change t=own {"value":"c","rev":1}', "\x1b[A\x1b[B"]);
 
     // A button clicks with Enter, which it binds to an action of its own,
     // and gives Space to the program.
@@ -460,13 +460,13 @@ describe("Host keys", () => {
     // program's, and the field edits with the rest.
     at("f");
     for (const k of ["x", "end", "arrow_left", "y"]) h.key(k);
-    assert.deepEqual(sent(h), ['ev input t=f {"value":"x"}', "\x1b[F", 'ev input t=f {"value":"yx"}']);
+    assert.deepEqual(sent(h), ['ev input t=f {"value":"x","rev":1}', "\x1b[F", 'ev input t=f {"value":"yx","rev":2}']);
 
     // Outside the div, the keys are the select's again. The field commits
     // as focus leaves it.
     h.write(focus("s", "free"));
     h.key("arrow_down");
-    assert.deepEqual(sent(h), ['ev change t=f {"value":"yx"}', 'ev change t=free {"value":"b"}']);
+    assert.deepEqual(sent(h), ['ev change t=f {"value":"yx","rev":2}', 'ev change t=free {"value":"b","rev":1}']);
   });
 
   test("with no element focused there is no keymap: no data-keys are read, and every key but tab reaches the program (SPEC §10.2)", () => {
@@ -489,12 +489,12 @@ describe("Host keys", () => {
     for (const k of ["arrow_down", "arrow_down", "arrow_down", "shift+b", "page_down", "page_up", "arrow_up", "space", "enter"]) {
       assert.ok(h.key(k), `${k} on a select`);
     }
-    const pick = (v: string) => [`ev input t=s {"value":"${v}"}`, `ev change t=s {"value":"${v}"}`];
-    assert.deepEqual(sent(h), [...pick("b"), ...pick("d"), ...pick("b"), ...pick("d"), ...pick("a")]);
+    const pick = (v: string, rev: number) => [`ev input t=s {"value":"${v}","rev":${rev}}`, `ev change t=s {"value":"${v}","rev":${rev}}`];
+    assert.deepEqual(sent(h), [...pick("b", 1), ...pick("d", 2), ...pick("b", 3), ...pick("d", 4), ...pick("a", 5)]);
 
     // Choosing from a list, as the user does with the pointer, is a pick too.
     h.choose("s", "s", "d");
-    assert.deepEqual(sent(h), pick("d"));
+    assert.deepEqual(sent(h), pick("d", 6));
   });
 });
 
@@ -504,7 +504,7 @@ describe("Host keys in a field", () => {
     h.write(focus("s", "f"));
     h.take();
     for (const k of ["x", "arrow_left", "arrow_left", "y"]) h.key(k);
-    assert.deepEqual(sent(h), ['ev input t=f {"value":"abcx"}', 'ev input t=f {"value":"abycx"}']);
+    assert.deepEqual(sent(h), ['ev input t=f {"value":"abcx","rev":1}', 'ev input t=f {"value":"abycx","rev":2}']);
   });
 
   test("fill leaves the caret at the end of its text, with nothing selected", () => {
@@ -514,7 +514,7 @@ describe("Host keys in a field", () => {
     for (const k of ["shift+arrow_left", "shift+arrow_left"]) assert.ok(h.key(k), k);
     h.fill("s", "f", "xyz");
     h.key("q");
-    assert.deepEqual(sent(h), ['ev input t=f {"value":"xyz"}', 'ev input t=f {"value":"xyzq"}']);
+    assert.deepEqual(sent(h), ['ev input t=f {"value":"xyz","rev":1}', 'ev input t=f {"value":"xyzq","rev":2}']);
   });
 });
 
@@ -612,7 +612,7 @@ describe("Host drops", () => {
   });
 });
 
-describe("Host 0.4", () => {
+describe("Host 0.5", () => {
   const controls = (h: Host) => h.replies().map((r) => Object.fromEntries(r.control));
 
   test("a delta is checked whole: a malformed op rejects it all, with its index; a missing target fails its op alone, the others apply (SPEC §6.1)", () => {

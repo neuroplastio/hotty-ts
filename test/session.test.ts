@@ -219,13 +219,13 @@ describe("Session", () => {
 
   test("a host of another version is text at once; with late, a reply of this version after it is the late answer, even in the same read (SPEC §4)", async () => {
     const answer = (a: string, body: object) => encode([["a", a], ["n", 1], ["re", "q"]], pack(body));
-    const eversion = answer("err", { code: "EVERSION", detail: "0.4" });
+    const eversion = answer("err", { code: "EVERSION", detail: "0.5" });
     for (const late of [false, true]) {
       const link = new Link({ write: () => {}, clock: new FakeClock() });
       const msgs: SessionMessage[] = [];
       const s = new Session({ link, onMessage: (m) => msgs.push(m), late });
       s.detect();
-      link.bytes(eversion + answer("ok", { v: "0.4", host: "later" }));
+      link.bytes(eversion + answer("ok", { v: "0.5", host: "later" }));
       await settle();
       if (!late) {
         assert.deepEqual(msgs, [{ kind: "ready", mode: "text" }], "without late: text, and the host's reply changes nothing");

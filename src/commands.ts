@@ -121,7 +121,7 @@ export interface QueryOptions {
 
 /**
  * Asks whether the terminal is a hotty host that speaks {@link VERSION},
- * fenced by Primary Device Attributes (SPEC §4): `a=q:n=<n>:v=0.4`. A host
+ * fenced by Primary Device Attributes (SPEC §4): `a=q:n=<n>:v=0.5`. A host
  * replies to the query, numbered n, before the DA1 answer every terminal
  * sends: its capabilities, or EVERSION when it speaks no version the query
  * lists.
@@ -475,6 +475,42 @@ export function touch(areas: readonly TouchArea[] = [], opts?: ReplyOptions): st
   if (areas.length === 0) return command(new Control([["a", "touch"]]), undefined, NO_REPLY, opts);
   const body = { areas: areas.map((a) => ({ c: a.c, r: a.r, w: a.w, h: a.h, drag: a.drag })) };
   return command(new Control([["a", "touch"]]), pack(body), NO_REPLY, opts);
+}
+
+/**
+ * A change to a control the user may be changing (SPEC §6.4): the control's
+ * `rev` it is made against, and the fields to change, each absent unless
+ * given, so that an empty `value` or `text` and a position 0 are sent.
+ * Positions count bytes of the value's UTF-8, not UTF-16 units; `sel` is the
+ * anchor and the caret.
+ */
+export interface FieldChange {
+  /** The control's revision the program last heard ({@link Event.rev}). */
+  rev: number;
+  value?: string;
+  from?: number;
+  to?: number;
+  text?: string;
+  sel?: readonly [anchor: number, caret: number];
+  checked?: boolean;
+}
+
+/**
+ * Changes a control unless the user has since `change.rev` (SPEC §6.4): a
+ * host answers `ESTALE` and changes nothing, and the program decides again
+ * from the next `input` it hears. The body is one msgpack map of `rev` and
+ * the fields given, in that order; none is checked here, the host does.
+ * It replies on error (q=1), since the program must hear `ESTALE`.
+ */
+export function setField(surface: string, target: string, change: FieldChange, opts?: ReplyOptions): string {
+  const body: Record<string, unknown> = { rev: change.rev };
+  if (change.value !== undefined) body.value = change.value;
+  if (change.from !== undefined) body.from = change.from;
+  if (change.to !== undefined) body.to = change.to;
+  if (change.text !== undefined) body.text = change.text;
+  if (change.sel !== undefined) body.sel = [change.sel[0], change.sel[1]];
+  if (change.checked !== undefined) body.checked = change.checked;
+  return command(new Control([["a", "field"], ["s", surface], ["t", target]]), pack(body), REPLY_ON_ERROR, opts);
 }
 
 /** Takes the keyboard back from a surface. Its focused control commits first, so a change may come before blur. */

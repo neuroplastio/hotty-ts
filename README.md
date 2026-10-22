@@ -7,19 +7,19 @@ user does in them. It follows the hotty repository's SDK.md: the same two
 layers, names and defaults as the other SDKs, and every SDK section of the
 conformance vectors.
 
-It speaks hotty 0.4: a host's replies and events carry msgpack bodies
-(SPEC §3.3), its query lists the version it speaks (`a=q:n=1:v=0.4`,
+It speaks hotty 0.5: a host's replies and events carry msgpack bodies
+(SPEC §3.3), its query lists the version it speaks (`a=q:n=1:v=0.5`,
 SPEC §4), and keys are named as myelin key names 0.1 names them (SPEC
 §10.4): `ctrl+a`, `arrow_left`, `shift+g`, and `mod+s` in a binding. A
-terminal of another hotty version, a 0.3 one included, is no host to it,
-and the program draws in cells. Moving a program from 0.3 is CHANGES.md's
-"Upgrading from 0.3" in the hotty repository.
+terminal of another hotty version, a 0.4 one included, is no host to it,
+and the program draws in cells. Moving a program from 0.4 is CHANGES.md's
+"Upgrading from 0.4" in the hotty repository, and SDK.md's Appendix E.
 
 ```
 npm install @neuroplastio/hotty
 ```
 
-0.4.x speaks hotty 0.4; the patch number is this repository's own.
+0.5.x speaks hotty 0.5; the patch number is this repository's own.
 
 ```ts
 import { NoTerminalError, Terminal } from "@neuroplastio/hotty/terminal";
@@ -59,7 +59,7 @@ h.surface("hello-hello")?.text(); // "Hello, HTML in the terminal."
 
 | import | what it is | SDK.md |
 | --- | --- | --- |
-| `@neuroplastio/hotty` | the wire layer: builders (with the op builders `text`, `attr`, `varOp`, …, the menu's and `touch`), `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, `unpack` for msgpack, what a host or a relay reads of a program's commands (`deltaOf`, `menuOf`, `menuShowOf`, `menuLevelOf`, `menuFind`, `touchOf`), and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
+| `@neuroplastio/hotty` | the wire layer: builders (with the op builders `text`, `attr`, `varOp`, …, the menu's, `touch` and `setField`), `encode`, `Decoder`, `Scanner`, `Detector`, `Reply`, `Event`, `Caps`, `unpack` for msgpack, what a host or a relay reads of a program's commands (`deltaOf`, `menuOf`, `menuShowOf`, `menuLevelOf`, `menuFind`, `touchOf`), and keys: `parseKey`, `decodeKeys`, `Keymap`, `TERMINAL_KEYS`. Pure: no I/O, no dependencies | §3 |
 | `@neuroplastio/hotty/field` | `Field`, a text field's value, caret and selection edited by SPEC §10.2's actions, for a program that draws its fields in cells | §4.6 |
 | `@neuroplastio/hotty/terminal` | `Terminal`, for a program with a terminal: one that prints documents and exits, asks a question, or streams a chart | §4.1 |
 | `@neuroplastio/hotty/session` | `Session`, for a UI framework's adapter: modes, layout, relayout, limits, messages | §4.3 |
@@ -100,6 +100,17 @@ with `touch([{ c, r, w, h, drag: "x" }])`, so that a finger drags it too
 (SPEC §9.6). The areas are the screen's cells, counted from 0, kept per
 screen: it sends them again when what it drew moves, the size changes or it
 switches screens, and `touch()` when it ends.
+
+A program that completes what the user is typing changes the field in place
+with `setField(surface, id, { rev, text, from, to })` (SPEC §6.4), rather than
+swapping in a new element. `rev` is the one the last `input` or `change`
+event carried (`ev.rev()`), and the other fields of a `FieldChange` are
+`value`, `from`, `to`, `text`, `sel` (anchor and caret) and `checked`, each
+sent only when given. Positions are bytes of the value's UTF-8, which
+JavaScript's string indexes are not: convert from UTF-16. If the user got
+there first the host answers `ESTALE` (it replies on error by default, `q=1`)
+and the program waits for the next `input`. An `input` or `caret` event
+(`data-on~=caret`) also carries the selection, `ev.sel()`.
 
 ## A framework's adapter
 
@@ -179,7 +190,7 @@ The names are Appendix A's TypeScript column: `placeAt`, `setText`, `reveal`,
 `delRes`, `del` (`delete` is a reserved word), `fitRows`, `cellCss`, and on
 `Event` `view()`, and on `Caps` `has(feature)`. The op builders are `morph`,
 `inner`, `replace`, `append`, `prepend`, `before`, `after`, `remove`, `attr`,
-`unattr`, `text`, `varOp` and `revealOp`; an `Op` is `{ op, target, key,
+`unattr`, `text`, `varOp` and `revealOp`; a `FieldChange` is `{ rev, value, from, to, text, sel, checked }`, each but `rev` optional; an `Op` is `{ op, target, key,
 value }`, a menu is `{ label, items }` of `{ key, label, name, enabled,
 items }`, and a touch area `{ c, r, w, h, drag }`. Options are
 objects: `doc(s, html, { detached: true, q: 0 })`, `place(s, { cols, rows,
@@ -189,14 +200,14 @@ keepCursor })`.
   `fields()`, a `Caps` field the host left out. A submit's `fields()` are
   pairs, `[name, value][]`; `mods()` is the modifier bits (`MOD_SHIFT`, …).
 - **Versions.** The query lists the version the SDK speaks, `VERSION`
-  (`a=q:n=1:v=0.4`, SPEC §4), and detection takes the terminal for a host
+  (`a=q:n=1:v=0.5`, SPEC §4), and detection takes the terminal for a host
   only when it answers with capabilities that decode and name it. Any other
   answer to the query, an error (`EVERSION` from a host of other versions,
   or another code) or capabilities it cannot read (a 0.1 host's JSON) or of
   another version, is text at once, done with the DA1 behind it: `detect()`
   is false, `caps` absent, and the reply, detection's, never reaches the
   input. With `late`, only a reply that makes the terminal a host is the
-  late answer. The test host speaks 0.4 only, and answers a query that does
+  late answer. The test host speaks 0.5 only, and answers a query that does
   not list it with `EVERSION`.
 - **Errors** are exceptions: `HottyError` (from `reply.err()`), and
   `NoAnswerError` when a request or a fence gets no answer in time, which
@@ -240,7 +251,7 @@ keepCursor })`.
 ## Conformance
 
 The vectors are the hotty repository's `conformance/vectors.json`, of
-version 0.4, copied to `test/testdata`, and checked against a checkout of
+version 0.5, copied to `test/testdata`, and checked against a checkout of
 hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 
 - **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan`, `detect`,
@@ -250,7 +261,7 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 - **Host section.** The test host runs the commands, the inspections, the
   keys, the menu steps and the writes of the host vectors (`Host.key`,
   `Host.shown`, `Host.pick`), and keeps the touch areas a program sends for
-  each screen (`Host.touchAreas`). It has the features `hover`, `count` and `menu`, and lays
+  each screen (`Host.touchAreas`). It keeps each control's `rev` and each text field's selection, takes `a=field` and sends `caret`. It has the features `hover`, `count` and `menu`, and lays
   nothing out, so the rows it gives `r=auto` are an estimate and are not
   checked, and an event's `area` is not either; `reveal` answers as a host
   does and scrolls nothing, and it sends no `view`. It skips the vectors

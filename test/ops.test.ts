@@ -1,4 +1,4 @@
-// What a host or a relay reads of a program's 0.4 commands, which the SDK
+// What a host or a relay reads of a program's 0.5 commands, which the SDK
 // sections of the vectors do not cover: a delta's ops (SPEC §6.1), a menu
 // (SPEC §10.7) and touch areas (SPEC §9.6), and the builders that make them.
 
