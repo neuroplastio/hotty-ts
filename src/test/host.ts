@@ -735,7 +735,8 @@ export class Host implements AsyncIterable<Uint8Array> {
   #field(s: Surface, m: Message): { code?: string; detail?: string; extra: [string, string][] } {
     const ok = { extra: [] as [string, string][] };
     const err = (code: string, detail: string) => ({ code, detail, extra: [] as [string, string][] });
-    // The first that holds: EDETACHED, ENOTARGET, EINVAL, ESTALE (SPEC §6.4).
+    // The first that holds: EDETACHED, ENOTARGET, EINVAL, ESTALE, and the
+    // positions last (SPEC §6.4).
     if (s.detached) return err("EDETACHED", s.name);
     const t = m.get("t");
     if (t === undefined || t === "") return err("EINVAL", "missing t");
@@ -760,21 +761,22 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (sel !== undefined && sel.length !== 2) return err("EINVAL", "sel is not two ints");
     if (checked !== undefined && !isBox) return err("EINVAL", "checked is for boxes");
     if ((spliced || sel !== undefined) && !isText) return err("EINVAL", "not a text field");
+    if (value !== undefined && isSelect) {
+      let found = false;
+      walk(el, (o) => {
+        if (isElement(o) && o.tagName === "option") found ||= (attr(o, "value") ?? textOf(o)) === value;
+      });
+      if (!found) return err("EINVAL", `no option ${JSON.stringify(value)}`);
+    }
+    // Positions count bytes of the value the program heard, so a stale
+    // command is ESTALE whatever they are.
+    if (rev !== s.rev(el)) return err("ESTALE", String(s.rev(el)));
     const cur = s.valueOf(el);
     // The new value, and where text left the caret, in UTF-16 units of it.
     let next = cur;
     let caret: number | undefined;
     if (value !== undefined) {
-      if (isSelect) {
-        let found = false;
-        walk(el, (o) => {
-          if (isElement(o) && o.tagName === "option") found ||= (attr(o, "value") ?? textOf(o)) === value;
-        });
-        if (!found) return err("EINVAL", `no option ${JSON.stringify(value)}`);
-        next = value;
-      } else {
-        next = this.#sanitize(el, value);
-      }
+      next = isSelect ? value : this.#sanitize(el, value);
       caret = next.length;
     } else if (spliced) {
       const f = this.#fieldOf(s, el);
@@ -796,7 +798,6 @@ export class Host implements AsyncIterable<Uint8Array> {
       anchorAt = ua;
       caret = uc;
     }
-    if (rev !== s.rev(el)) return err("ESTALE", String(s.rev(el)));
     if (checked !== undefined) {
       if (checked) for (const o of s.group(el)) if (o !== el) s.checked.set(o, false);
       s.checked.set(el, checked);
