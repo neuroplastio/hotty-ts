@@ -735,9 +735,10 @@ export class Host implements AsyncIterable<Uint8Array> {
   #field(s: Surface, m: Message): { code?: string; detail?: string; extra: [string, string][] } {
     const ok = { extra: [] as [string, string][] };
     const err = (code: string, detail: string) => ({ code, detail, extra: [] as [string, string][] });
+    // The first that holds: EDETACHED, ENOTARGET, EINVAL, ESTALE (SPEC §6.4).
+    if (s.detached) return err("EDETACHED", s.name);
     const t = m.get("t");
     if (t === undefined || t === "") return err("EINVAL", "missing t");
-    if (s.detached) return err("EDETACHED", s.name);
     const el = s.byId(t);
     if (!el) return err("ENOTARGET", t);
     const body = m.payload.length > 0 ? readBody(m.payload, FIELD) : undefined;
