@@ -786,7 +786,7 @@ export class Host implements AsyncIterable<Uint8Array> {
       const ua = unitOf(cur, a);
       const ub = unitOf(cur, b);
       if (ua === undefined || ub === undefined) return err("EINVAL", "a position is past the end or inside a code point");
-      const put = el.tagName === "textarea" ? text! : text!.replace(/[\r\n]/g, "");
+      const put = el.tagName === "textarea" ? text!.replace(/\r\n?/g, "\n") : text!.replace(/[\r\n]/g, "");
       next = cur.slice(0, ua) + put + cur.slice(ub);
       caret = ua + put.length;
     }
@@ -821,9 +821,9 @@ export class Host implements AsyncIterable<Uint8Array> {
   }
 
   // A value as its control keeps it (SPEC §6.4): an input drops line breaks,
-  // a range clamps and steps it, a number that does not parse is empty.
+  // a textarea makes them LF, a range clamps and steps it, a number that does not parse is empty.
   #sanitize(el: El, v: string): string {
-    if (el.tagName === "textarea") return v;
+    if (el.tagName === "textarea") return v.replace(/\r\n?/g, "\n");
     v = v.replace(/[\r\n]/g, "");
     const type = (attr(el, "type") ?? "").toLowerCase();
     if (type === "number") return Number.isFinite(Number(v)) && v.trim() !== "" ? v : "";
