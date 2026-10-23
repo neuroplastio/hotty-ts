@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 
-import { doc, encode, SCROLL_VERTICAL, Scanner, setText } from "../src/index.ts";
+import { doc, encode, res, SCROLL_VERTICAL, Scanner, setText } from "../src/index.ts";
 import { Link } from "../src/link.ts";
 import { pack } from "../src/msgpack.ts";
 import { Session, type SessionMessage, type Want } from "../src/session.ts";
@@ -257,7 +257,7 @@ describe("Session", () => {
   });
 
   test("relayout after the framework erases, scrolls, sets a region, leaves the alternate screen or resets", async () => {
-    const { s, frame, kinds } = await ready();
+    const { s, frame, kinds, msgs } = await ready();
     kinds();
     const seqs = ["\x1b[2J", "\x1b[3J", "\x1b[S", "\x1b[2T", "\x1b[L", "\x1b[3M", "\x1b[3;20r", "\x1bM", "\x1b[?1049l", "\x1b[?1047l", "\x1b[?47l", "\x1bc"];
     for (const seq of seqs) {
@@ -266,7 +266,8 @@ describe("Session", () => {
       s.watch("text" + seq + "more");
       assert.ok(s.placed("a"), "not from inside the framework's write");
       await settle();
-      assert.deepEqual(kinds(), ["relayout"], JSON.stringify(seq));
+      // The host keeps its documents through all but a full reset.
+      assert.deepEqual(msgs.splice(0), [{ kind: "relayout", lost: seq === "\x1bc" }], JSON.stringify(seq));
       assert.equal(s.placed("a"), false);
     }
     assert.equal(s.counts.relayouts, seqs.length);
@@ -294,7 +295,7 @@ describe("Session", () => {
   });
 
   test("after a full reset, the next layout sends the documents again", async () => {
-    const { h, s, frame, kinds } = await ready();
+    const { h, s, frame, kinds, msgs } = await ready();
     s.layout([card("a", 0, 0), card("k", 0, 2, { keep: true })]);
     frame();
     s.layout([card("a", 0, 0)]);
@@ -302,7 +303,7 @@ describe("Session", () => {
     kinds();
     frame("\x1bc");
     await settle();
-    assert.deepEqual(kinds(), ["relayout"]);
+    assert.deepEqual(msgs.splice(0), [{ kind: "relayout", lost: true }], "the reset ended the session: the resources went too");
     assert.deepEqual(names(h), []);
     assert.equal(s.has("k"), false, "hidden ones went too");
     s.layout([card("a", 0, 0), card("k", 0, 2, { keep: true })]);
@@ -312,10 +313,23 @@ describe("Session", () => {
     assert.ok(h.surface("a")!.placed && h.surface("k")!.placed);
     assert.deepEqual(kinds(), [], "no error");
     assert.equal(s.counts.docs, 4);
+    // With only a hidden one, nothing is on screen, and the loss is still
+    // told; with no document, there is none.
+    s.layout([card("k", 0, 2, { keep: true })]);
+    frame();
+    s.layout([]);
+    frame();
+    kinds();
+    frame("\x1bc");
+    await settle();
+    assert.deepEqual(msgs.splice(0), [{ kind: "relayout", lost: true }]);
+    frame("\x1bc");
+    await settle();
+    assert.deepEqual(kinds(), []);
   });
 
   test("a document the host lost answers its placement with ENOENT, and is sent again", async () => {
-    const { h, s, frame, kinds } = await ready();
+    const { h, s, frame, kinds, msgs } = await ready();
     frame("\x1b[?1049h\x1b[H\x1b[2J");
     s.layout([card("a", 0, 0)]);
     frame();
@@ -324,17 +338,112 @@ describe("Session", () => {
     // this host deletes their surfaces too (SPEC §5.4, SHOULD).
     frame("\x1b[?1049l");
     await settle();
-    assert.deepEqual(kinds(), ["relayout"]);
+    assert.deepEqual(msgs.splice(0), [{ kind: "relayout", lost: false }]);
     assert.equal(h.surface("a"), undefined);
     s.layout([card("a", 0, 0)]);
     frame();
     await settle();
-    assert.deepEqual(kinds(), ["relayout"], "the ENOENT, as a relayout");
+    assert.deepEqual(msgs.splice(0), [{ kind: "relayout", lost: true }], "the ENOENT, as a relayout that says the host lost it");
     assert.equal(s.has("a"), false);
     s.layout([card("a", 0, 0)]);
     frame();
     assert.ok(h.surface("a")?.placed);
     assert.equal(s.counts.docs, 2);
+  });
+
+  // A host that loses its documents loses them all at once, and the program
+  // sends its resources again once: the first ENOENT reports the loss, and
+  // one for a placement sent before the report is the same loss's. A
+  // placement sent after the report that finds its document gone is a loss
+  // of its own.
+  test("a loss is told once, however many documents it took", async () => {
+    const link = new Link({ write: () => {}, known: { native: true }, clock: new FakeClock() });
+    const msgs: SessionMessage[] = [];
+    const s = new Session({ link, onMessage: (m) => msgs.push(m) });
+    s.detect();
+    await settle();
+    msgs.length = 0;
+    const want = ["a", "b", "c"].map((name, i) => card(name, 0, i * 2));
+    // The host's ENOENT for a placement of a surface it does not have.
+    const gone = async (name: string) => {
+      link.bytes(encode([["a", "err"], ["s", name], ["re", "place"]], pack({ code: "ENOENT", detail: `no surface ${name}` })));
+      await settle();
+      return msgs.splice(0);
+    };
+    s.layout(want);
+    s.flush();
+    assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: true }], "the first ENOENT");
+    s.layout(want);
+    let out = s.flush();
+    assert.ok(out.includes("a=doc:s=a") && !out.includes("a=doc:s=b"), out);
+    for (const name of ["b", "c"]) assert.deepEqual(await gone(name), [{ kind: "relayout", lost: false }], `${name}'s ENOENT`);
+    s.layout(want);
+    out = s.flush();
+    assert.ok(out.includes("a=doc:s=b") && out.includes("a=doc:s=c") && !out.includes("a=doc:s=a"), out);
+    // They are lost again: the placements after the erase went after the
+    // report.
+    s.watch("\x1b[2J");
+    await settle();
+    assert.deepEqual(msgs.splice(0), [{ kind: "relayout", lost: false }], "the erase");
+    s.layout(want);
+    assert.equal(s.flush().split("a=place").length - 1, 3, "all three placed again");
+    assert.deepEqual(await gone("b"), [{ kind: "relayout", lost: true }], "a second loss");
+    assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: false }], "a's ENOENT in the second loss");
+  });
+
+  // The host loses every document and resource behind the program's back,
+  // as one that restarts behind a relay does. The program's renderer erases
+  // the screen, which asks for a plain relayout; the card's placement then
+  // finds the card gone, and the program hears of the loss once, sends its
+  // stylesheet again, and the card follows it.
+  test("a program on a host that lost its documents sends its resources again, once, ahead of them", async () => {
+    const h = new Host();
+    const t = new Terminal({ input: h, output: h, name: "app", size: () => h, clock: new FakeClock() });
+    const seen: SessionMessage[] = [];
+    const style = res("app-css", "text/css", "p { color: teal }"); // a resource sent once (SPEC §7.1)
+    let erase = false;
+    const draw = () => {
+      s.layout([{ name: "card", rect: { x: 2, y: 1, w: 20, h: 3 }, doc: () => `<link rel="stylesheet" href="cid:app-css"><p id=t>card</p>` }]);
+      const cells = erase ? "\x1b[2J" : "";
+      erase = false;
+      s.watch(cells);
+      h.write(cells + s.flush());
+    };
+    const s: Session = new Session({
+      link: t,
+      onMessage: (m) => {
+        seen.push(m);
+        if (m.kind === "ready") s.send(style); // nothing unless the terminal is a host
+        if (m.kind === "relayout" && m.lost) s.send(style); // ahead of the card, which goes with the frame
+        if (m.kind === "ready" || m.kind === "relayout") draw();
+      },
+    });
+    s.detect();
+    await t.detect();
+    await settle();
+    assert.ok(h.surface("card")?.placed, "the card is placed");
+    assert.ok(h.resource("app-css"), "the stylesheet is there");
+    seen.length = 0;
+    h.forget();
+    const before = h.commands().length;
+    erase = true;
+    draw(); // the renderer repaints
+    await settle();
+    assert.deepEqual(
+      seen.filter((m) => m.kind === "relayout"),
+      [
+        { kind: "relayout", lost: false }, // the erase lost nothing
+        { kind: "relayout", lost: true }, // the placement found the card gone
+      ],
+    );
+    assert.ok(h.surface("card")?.placed, "the card is back");
+    assert.ok(h.resource("app-css"), "the stylesheet was sent again");
+    assert.deepEqual(
+      h.commands().slice(before).map((m) => m.get("a")),
+      ["place", "res", "doc", "place"],
+      "the placement that found the loss, the stylesheet, the card",
+    );
+    assert.deepEqual(h.errors(), []);
   });
 
   test("limits: the Session's own makes room; the host's makes a surface wait for room", async () => {
@@ -359,7 +468,7 @@ describe("Session", () => {
   });
 
   test("an EQUOTA teaches the Session the host's limit", async () => {
-    const { h, s, frame, kinds } = await ready();
+    const { h, s, frame, kinds, msgs } = await ready();
     h.write(doc("theirs-1", "<p>x</p>") + doc("theirs-2", "<p>x</p>"));
     // A host that counts surfaces the Session did not send: it holds 64,
     // and 62 are left.
@@ -369,7 +478,7 @@ describe("Session", () => {
     s.layout([card("a", 0, 0), card("b", 0, 2), card("c", 0, 4)]);
     frame();
     await settle();
-    assert.deepEqual(kinds(), ["relayout"], "the EQUOTA, as a relayout; the placement's ENOENT is the Session's");
+    assert.deepEqual(msgs.splice(0), [{ kind: "relayout", lost: false }], "the EQUOTA, as a relayout; the placement's ENOENT is the Session's");
     assert.equal(s.has("c"), false);
     s.layout([card("a", 0, 0), card("b", 0, 2), card("c", 0, 4)]);
     frame();

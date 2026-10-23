@@ -882,3 +882,29 @@ describe("Host 0.5", () => {
     assert.deepEqual(h.events(), []);
   });
 });
+
+describe("Host resets and losses", () => {
+  test("a full reset ends the session: every surface goes, and every resource with it (SPEC §2, §5.4, §7.1)", () => {
+    const h = new Host();
+    h.write(res("css", "text/css", "p{}") + doc("a", "<p>a</p>") + place("a", { cols: 10, rows: 1 }));
+    assert.ok(h.surface("a") && h.resource("css"));
+    h.write("\x1bc");
+    assert.deepEqual(h.surfaces(), [], "a full reset deletes every surface");
+    assert.equal(h.resource("css"), undefined, "a full reset ends the session, and its resources with it");
+  });
+
+  test("forget drops every surface and resource without a word, and the program's next placement finds its surface gone", () => {
+    const h = new Host();
+    h.write(res("css", "text/css", "p{}") + doc("a", "<button id=b>b</button>") + place("a", { cols: 10, rows: 1 }) + focus("a", "b"));
+    h.take();
+    const [replies, events] = [h.replies().length, h.events().length];
+    h.forget();
+    assert.deepEqual([h.surfaces().length, h.replies().length, h.events().length, h.buffered], [0, replies, events, 0], "not told");
+    assert.equal(h.resource("css"), undefined, "the resource outlived forget");
+    assert.equal(h.key("x"), false, "the keyboard went with the surface");
+    assert.deepEqual(sent(h), ["x"]);
+    h.write(place("a", { cols: 10, rows: 1 }));
+    const r = h.replies().at(-1)!.reply()!;
+    assert.deepEqual([r.re, r.surface, r.code], ["place", "a", "ENOENT"]);
+  });
+});

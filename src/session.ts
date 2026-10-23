@@ -20,8 +20,9 @@
  *   ({@link Session.relayout}), and the Session asks for a new layout.
  * - **Messages.** What the host sends comes back through onMessage: ready
  *   (the mode is known), an event, an error (a command refused), an ack (the
- *   ok of a numbered command), relayout, and pong. Other input comes back as
- *   it was.
+ *   ok of a numbered command), relayout (with lost when the host lost
+ *   documents, so that the program sends their resources again), and pong.
+ *   Other input comes back as it was.
  *
  * In a terminal that is not a host the mode is text, and the Session sends
  * nothing: the program draws everything in cells.
@@ -120,7 +121,20 @@ export type SessionMessage =
    */
   | { kind: "ack"; reply: Reply }
   /** Lay the surfaces out again: the screen was erased or scrolled under them, or a document went missing. */
-  | { kind: "relayout" }
+  | {
+      kind: "relayout";
+      /**
+       * The host lost a document, which layout sends again, and it may have
+       * lost the resources (res) the document refers to as well, since a
+       * full reset ends the session that stored them (SPEC §2, §7.1). Send
+       * them again before layout, so that they reach the host ahead of the
+       * document; sending one again replaces it. One loss is reported once,
+       * however many documents it took: an ENOENT for a placement sent
+       * before the report is taken as the same loss's, and gives lost false.
+       * A full reset the Session watched go out is a loss of its own.
+       */
+      lost: boolean;
+    }
   /** A ping's answer: the terminal took what was written before it, took milliseconds after. */
   | { kind: "pong"; took: number }
   /** Bytes of a byte stream that are not hotty's: keys, the mouse, other answers, as they were. */
@@ -233,6 +247,11 @@ export class Session {
   #keep = new Map<string, boolean>();
   #seen = new Map<string, number>(); // the last layout that wanted a surface
   #refused = new Set<string>(); // documents refused with EQUOTA, whose placement fails too
+  // The losses reported (relayout's lost), and what it was when each surface
+  // was last placed: an ENOENT for a placement sent before the last report
+  // is that loss's.
+  #lost = 0;
+  #placedIn = new Map<string, number>();
   #layouts = 0;
   #learned = 0; // a limit an EQUOTA taught
   #closed = false;
@@ -296,7 +315,7 @@ export class Session {
     this.mode = "native";
     this.caps = caps;
     this.#onMessage({ kind: "ready", mode: "native", caps });
-    this.#onMessage({ kind: "relayout" });
+    this.#onMessage({ kind: "relayout", lost: false });
   }
 
   #reply(r: Reply) {
@@ -316,7 +335,7 @@ export class Session {
       this.#placed.delete(s);
       this.#flags.delete(s);
       this.#refused.add(s);
-      this.#onMessage({ kind: "relayout" });
+      this.#onMessage({ kind: "relayout", lost: false });
       return;
     }
     if (r.re === "place" && r.code === "ENOENT" && this.#refused.has(s)) {
@@ -324,12 +343,16 @@ export class Session {
       return;
     }
     if (r.re === "place" && r.code === "ENOENT" && this.#hasDoc.has(s)) {
-      // The host lost the document (a reset, the alternate screen): send
-      // both again with the next layout.
+      // The host lost the document (a reset, the alternate screen, a host
+      // restarting behind a relay): send both again with the next layout,
+      // and have the program send the resources again, unless the placement
+      // went before the last loss was reported.
+      const lost = (this.#placedIn.get(s) ?? 0) === this.#lost;
+      if (lost) this.#lost++;
       this.#hasDoc.delete(s);
       this.#placed.delete(s);
       this.#flags.delete(s);
-      this.#onMessage({ kind: "relayout" });
+      this.#onMessage({ kind: "relayout", lost });
       return;
     }
     this.#onMessage({ kind: "error", reply: r });
@@ -399,6 +422,7 @@ export class Session {
         this.counts.places++;
         this.#placed.set(s.name, p);
         this.#flags.set(s.name, { press: p.press, fit: p.fit, hover: p.hover });
+        this.#placedIn.set(s.name, this.#lost);
       }
     }
     for (const name of this.#names()) {
@@ -463,6 +487,7 @@ export class Session {
     this.#flags.delete(name);
     this.#keep.delete(name);
     this.#seen.delete(name);
+    this.#placedIn.delete(name);
   }
 
   /** Whether the host has a surface's document, on screen or hidden, so that deltas to it make sense. */
@@ -527,7 +552,7 @@ export class Session {
    * (2 or 3), scroll up or down, insert or delete lines, a new scrolling
    * region, reverse index, leaving the alternate screen, or a full reset.
    * A full reset deletes every surface, so after one the next layout sends
-   * the documents again.
+   * the documents again, and the relayout says the host lost them (lost).
    */
   watch(output: string | Uint8Array): void {
     const seen = this.#watch.scan(output);
@@ -559,17 +584,22 @@ export class Session {
       const reset = this.#reset;
       this.#reset = false;
       if (this.mode !== "native" || this.#closed) return;
+      // A full reset deletes every surface (SPEC §5.4), hidden ones too, and
+      // ends the session, with the resources it stored (SPEC §2, §7.1): the
+      // next layout sends the documents again, and the program its
+      // resources first. No ENOENT will tell it: the placements go with
+      // their documents.
+      const lost = reset && this.#hasDoc.size > 0;
       if (reset) {
-        // A full reset deletes every surface (SPEC §5.4), hidden ones too:
-        // the next layout sends their documents again.
         this.#hasDoc.clear();
         this.#flags.clear();
         this.#refused.clear();
       }
-      if (this.#placed.size === 0) return;
+      if (this.#placed.size === 0 && !lost) return;
+      if (lost) this.#lost++;
       this.#placed.clear();
       this.counts.relayouts++;
-      this.#onMessage({ kind: "relayout" });
+      this.#onMessage({ kind: "relayout", lost });
     });
   }
 

@@ -131,6 +131,22 @@ write("\x1b[?2026h" + cells + s.flush() + "\x1b[?2026l");
 write(s.close()); // deletes the surfaces it sent, and no one else's
 ```
 
+A `relayout` asks for a frame: the screen was erased or scrolled under the
+surfaces, or the host lost a document. With `lost`, the host lost documents
+(a full reset, a host restarting behind a relay), and likely the resources
+they refer to as well (SPEC §2, §7.1), which only the program knows. The
+program sends them again before the frame's `layout`, so that they reach the
+host ahead of the documents; sending one again replaces it. One loss is told
+once, however many documents it took.
+
+```ts
+// in onMessage:
+if (m.kind === "relayout") {
+  if (m.lost) s.send(res("app-css", "text/css", css)); // ahead of the documents, which go with the frame
+  draw();
+}
+```
+
 Some environments parse their input themselves and hand over complete
 sequences. OpenTUI is one: it may keep the DA1 answers for itself, and it
 writes between its frames. For those, the `Session` stands on a `Link`

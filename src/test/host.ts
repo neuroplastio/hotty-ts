@@ -205,8 +205,10 @@ function estimateRows(s: Surface, cols: number): number {
  * graphics query. It keeps the cells the program printed (screen, lines)
  * and where it left the cursor. A placement made on the alternate screen
  * goes with it, and so does its surface; a full reset deletes every
- * surface (SPEC §5.4). It keeps the touch areas the program names for each
- * screen, and checks them as a host does (touchAreas, SPEC §9.6); no
+ * surface (SPEC §5.4) and ends the session, with the resources it stored
+ * (SPEC §2, §7.1). The test can make it lose every surface and resource
+ * without a word (forget). It keeps the touch areas the program names for
+ * each screen, and checks them as a host does (touchAreas, SPEC §9.6); no
  * finger reaches them.
  */
 export class Host implements AsyncIterable<Uint8Array> {
@@ -478,11 +480,13 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#alt = on;
   }
 
-  // RIS: a full reset deletes every surface (SPEC §5.4), drops both
-  // screens' touch areas (§9.6), and forgets a held late query (§4).
+  // RIS: a full reset deletes every surface (SPEC §5.4) and ends the
+  // session, with the resources it stored (§2, §7.1), drops both screens'
+  // touch areas (§9.6), and forgets a held late query (§4).
   #reset() {
     this.#late = undefined;
     this.#surfaces.clear();
+    this.#res.clear();
     this.#keyboard = undefined;
     this.#menus = [undefined, undefined];
     this.#touch = [[], []];
@@ -1856,6 +1860,20 @@ export class Host implements AsyncIterable<Uint8Array> {
    */
   get prefix(): string {
     return this.#prefix !== undefined && this.#prefix === this.#keyboard ? this.#prefix.name : "";
+  }
+
+  /**
+   * Drops every surface and resource behind the program's back, as a host
+   * does that restarts behind a relay: the program is not told, and finds
+   * out from the ENOENT its next placement gets. The screen stays as it is.
+   */
+  forget(): void {
+    this.#surfaces.clear();
+    this.#res.clear();
+    this.#keyboard = undefined;
+    this.#hovered = undefined;
+    this.#prefix = undefined;
+    this.#drag = undefined;
   }
 
   // --- inspection ---------------------------------------------------------------
