@@ -30,6 +30,14 @@ function vectorControl(m: Record<string, string>): [string, string][] {
   return [...(m.a !== undefined ? [["a", m.a] as [string, string]] : []), ...keys.map((k) => [k, m[k]!] as [string, string])];
 }
 
+// What a send step sends: text, bytes that are not UTF-8, or a body written
+// from JSON as msgpack, a number with a fraction a float.
+function payload(st: Any): string | Uint8Array {
+  if (st.body !== undefined) return pack(st.body);
+  if (st.payload_b64 !== undefined) return Uint8Array.from(Buffer.from(st.payload_b64, "base64"));
+  return st.payload ?? "";
+}
+
 // The replies and the events the host sent since the last call.
 function sent(h: Host): { replies: Reply[]; events: Event[] } {
   const text = new TextDecoder().decode(h.take());
@@ -165,7 +173,7 @@ describe("host vectors", () => {
         if (!st.send) return; // a pointer or touch step
         h.take();
         // A body is msgpack written from JSON: a number with a fraction is a float.
-        h.write(encode(vectorControl(st.send), st.body !== undefined ? pack(st.body) : (st.payload ?? "")));
+        h.write(encode(vectorControl(st.send), payload(st)));
         const { replies: got, events: made } = sent(h);
         // The events a command makes, in a vector with no pointer, whose
         // events this host cannot make.

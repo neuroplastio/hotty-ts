@@ -172,6 +172,7 @@ interface Drag {
 
 const utf8 = new TextEncoder();
 const fromUtf8 = new TextDecoder();
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
 
 // The rows a placement with auto rows gets by default: a row for each line
 // of the body's text, wrapped at cols.
@@ -645,7 +646,12 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (name === undefined || !validName(name)) return err("EINVAL", "bad surface name");
     let s = this.#surfaces.get(name);
     if (a === "doc") {
-      const markup = m.text();
+      let markup: string;
+      try {
+        markup = strictUtf8.decode(m.payload);
+      } catch {
+        return err("EINVAL", "payload is not UTF-8"); // and nothing changes (SPEC §3.3)
+      }
       if (!s) {
         const limit = this.#caps.limits?.surfaces ?? 0;
         if (limit > 0 && this.#surfaces.size >= limit) return err("EQUOTA", "surfaces");
