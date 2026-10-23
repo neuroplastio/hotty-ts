@@ -128,11 +128,12 @@ export type SessionMessage =
        * lost the resources (res) the document refers to as well, since a
        * full reset ends the session that stored them (SPEC §2, §7.1). Send
        * them again before layout, so that they reach the host ahead of the
-       * document; sending one again replaces it. One loss is reported once,
-       * however many documents it took: an ENOENT for a placement sent
-       * before the report is taken as the same loss's, and gives lost false,
-       * and a hidden surface's document goes again with its next placement.
-       * A full reset the Session watched go out is a loss of its own.
+       * document; sending one again replaces it. A host loses its documents
+       * together (a full reset, a restart behind a relay), so layout sends
+       * every one again, and one loss is reported once however many it
+       * took: an ENOENT for a placement sent before the documents went again
+       * is the same loss's, and gives nothing. A full reset the Session
+       * watched go out is a loss of its own.
        */
       lost: boolean;
     }
@@ -159,6 +160,14 @@ export const DEFAULT_LIMIT = 48;
 
 /** How long a ping waits for a frame to go with before it goes on its own. */
 export const PING_WAIT = 100;
+
+// Numbers a loss's marks (the Session's marking) above any number a program
+// picks for its own commands, and well under 2^53.
+const MARK_BASE = 2 ** 40;
+
+// How long a mark's answer may take, in ms: past it, the answer is taken as
+// lost with the host that would have sent it, and an ENOENT is a loss again.
+const MARK_TIMEOUT = 3000;
 
 /** Options of a {@link Session}. */
 export interface SessionOptions {
@@ -248,11 +257,16 @@ export class Session {
   #keep = new Map<string, boolean>();
   #seen = new Map<string, number>(); // the last layout that wanted a surface
   #refused = new Set<string>(); // documents refused with EQUOTA, whose placement fails too
-  // The losses reported (relayout's lost), and what it was when each surface
-  // was last placed: an ENOENT for a placement sent before the last report
-  // is that loss's.
-  #lost = 0;
-  #placedIn = new Map<string, number>();
+  // marking is a loss reported (relayout's lost) whose late answers may still
+  // come. The first document layout sends again after it is numbered, markN
+  // (0 until it goes), on markDoc at markAt: the host answers in order, so an
+  // ENOENT read before that document's answer is for a placement sent before
+  // it (SDK.md §4.3).
+  #marking = false;
+  #markN = 0;
+  #markDoc = "";
+  #markAt = 0;
+  #marks = 0;
   #layouts = 0;
   #learned = 0; // a limit an EQUOTA taught
   #closed = false;
@@ -320,6 +334,12 @@ export class Session {
   }
 
   #reply(r: Reply) {
+    if (r.n !== undefined && r.n >= MARK_BASE && r.re === "doc") {
+      // A loss's mark: this one, or an older one answered after it timed
+      // out. Either way the Session's, never an ack the program waits for.
+      if (this.#marking && r.n === this.#markN && r.surface === this.#markDoc) this.#marking = false; // the loss's late answers have all come
+      if (r.ok) return;
+    }
     if (r.ok) {
       // A command the program numbered; queries are the link's.
       if (r.n !== undefined && r.re !== "q") this.#onMessage({ kind: "ack", reply: r });
@@ -343,28 +363,22 @@ export class Session {
       this.#refused.delete(s);
       return;
     }
+    if (r.re === "place" && r.code === "ENOENT" && this.#marking && (this.#markN === 0 || this.link.clock.now() - this.#markAt < MARK_TIMEOUT)) {
+      // For a placement sent before the documents went again: this loss's,
+      // and its document goes with the rest.
+      return;
+    }
     if (r.re === "place" && r.code === "ENOENT" && this.#hasDoc.has(s)) {
-      // The host lost the document (a reset, the alternate screen, a host
-      // restarting behind a relay): send both again with the next layout,
-      // and have the program send the resources again, unless the placement
-      // went before the last loss was reported.
-      const lost = (this.#placedIn.get(s) ?? 0) === this.#lost;
-      if (lost) {
-        this.#lost++;
-        // A host loses its documents together (a full reset, a restart
-        // behind a relay): the hidden ones go again with their next
-        // placement, which would find them gone and report this loss again.
-        // One on the screen answers its own placement.
-        for (const name of this.#hasDoc) {
-          if (this.#placed.has(name)) continue;
-          this.#hasDoc.delete(name);
-          this.#flags.delete(name);
-        }
-      }
-      this.#hasDoc.delete(s);
-      this.#placed.delete(s);
-      this.#flags.delete(s);
-      this.#onMessage({ kind: "relayout", lost });
+      // The host dropped the document with its placement, and with it the
+      // others (a reset, a host restarting behind a relay): send them all
+      // again with the next layout, and have the program send the resources
+      // again.
+      this.#marking = true;
+      this.#markN = 0;
+      this.#hasDoc.clear();
+      this.#placed.clear();
+      this.#flags.clear();
+      this.#onMessage({ kind: "relayout", lost: true });
       return;
     }
     this.#onMessage({ kind: "error", reply: r });
@@ -396,7 +410,15 @@ export class Session {
       const scroll = s.scroll ?? 0;
       if (!has || this.#scroll.get(s.name) !== scroll) {
         if (!has && !this.#makeRoom(wanted)) continue; // the host holds no more: not until one goes
-        this.send(doc(s.name, s.doc(), { scroll }));
+        let n: number | undefined;
+        if (this.#marking && this.#markN === 0) {
+          // The loss's mark: a numbered command is answered whatever comes
+          // of it (SPEC §3.5).
+          this.#markN = n = MARK_BASE + ++this.#marks;
+          this.#markDoc = s.name;
+          this.#markAt = this.link.clock.now();
+        }
+        this.send(doc(s.name, s.doc(), { scroll, n }));
         this.counts.docs++;
         this.#hasDoc.add(s.name);
         this.#scroll.set(s.name, scroll);
@@ -434,7 +456,6 @@ export class Session {
         this.counts.places++;
         this.#placed.set(s.name, p);
         this.#flags.set(s.name, { press: p.press, fit: p.fit, hover: p.hover });
-        this.#placedIn.set(s.name, this.#lost);
       }
     }
     for (const name of this.#names()) {
@@ -499,7 +520,6 @@ export class Session {
     this.#flags.delete(name);
     this.#keep.delete(name);
     this.#seen.delete(name);
-    this.#placedIn.delete(name);
   }
 
   /** Whether the host has a surface's document, on screen or hidden, so that deltas to it make sense. */
@@ -608,7 +628,13 @@ export class Session {
         this.#refused.clear();
       }
       if (this.#placed.size === 0 && !lost) return;
-      if (lost) this.#lost++;
+      if (lost) {
+        // Marked like a loss an ENOENT reports, so that the two behave the
+        // same: a placement written behind the reset finds its document
+        // gone, and its ENOENT is this loss's.
+        this.#marking = true;
+        this.#markN = 0;
+      }
       this.#placed.clear();
       this.counts.relayouts++;
       this.#onMessage({ kind: "relayout", lost });

@@ -47,6 +47,32 @@ const card = (name: string, x: number, y: number, more: Partial<Want> = {}): Wan
 
 const names = (h: Host) => h.surfaces().map((x) => x.name);
 
+// A Session native from the start, on a link with no host behind it: the
+// test hands it the host's answers, each returning the messages it gave.
+async function bare() {
+  const clock = new FakeClock();
+  const link = new Link({ write: () => {}, known: { native: true }, clock });
+  const msgs: SessionMessage[] = [];
+  const s = new Session({ link, onMessage: (m) => msgs.push(m) });
+  s.detect();
+  await settle();
+  msgs.length = 0;
+  const answer = async (wire: string) => {
+    link.bytes(wire);
+    await settle();
+    return msgs.splice(0);
+  };
+  // The host's ENOENT for a placement of a surface it does not have.
+  const gone = (name: string) => answer(encode([["a", "err"], ["s", name], ["re", "place"]], pack({ code: "ENOENT", detail: `no surface ${name}` })));
+  // The host's answer to the document in out that marks a loss.
+  const marked = (out: string) => {
+    const [, name, n] = /a=doc:s=([^:;]+)[^;]*:n=(\d+)/.exec(out) ?? [];
+    assert.ok(name && n, `no document numbered: ${out}`);
+    return answer(encode([["a", "ok"], ["n", n], ["s", name], ["re", "doc"]]));
+  };
+  return { clock, s, msgs, gone, marked };
+}
+
 describe("Session", () => {
   test("ready when detection decides; a document once, and a placement where the surface is", async () => {
     const { h, s, msgs, frame } = await ready();
@@ -301,6 +327,9 @@ describe("Session", () => {
     s.layout([card("a", 0, 0)]);
     frame();
     kinds();
+    // The frame that resets moves a: its placement goes out behind the
+    // reset, and its ENOENT is the reset's loss.
+    s.layout([card("a", 0, 1)]);
     frame("\x1bc");
     await settle();
     assert.deepEqual(msgs.splice(0), [{ kind: "relayout", lost: true }], "the reset ended the session: the resources went too");
@@ -311,7 +340,9 @@ describe("Session", () => {
     await settle();
     assert.deepEqual(names(h), ["a", "k"]);
     assert.ok(h.surface("a")!.placed && h.surface("k")!.placed);
-    assert.deepEqual(kinds(), [], "no error");
+    const marks = h.commands().filter((m) => m.get("a") === "doc" && m.get("n") !== undefined);
+    assert.equal(marks.length, 1, "the first document sent again marks the loss");
+    assert.deepEqual(kinds(), [], "no error, and the mark's ok is the Session's");
     assert.equal(s.counts.docs, 4);
     // With only a hidden one, nothing is on screen, and the loss is still
     // told; with no document, there is none.
@@ -353,62 +384,101 @@ describe("Session", () => {
 
   // A host that loses its documents loses them all at once, and the program
   // sends its resources again once: the first ENOENT reports the loss, and
-  // one for a placement sent before the report is the same loss's. A
-  // placement sent after the report that finds its document gone is a loss
-  // of its own.
+  // every document goes again, the first numbered. An ENOENT read before
+  // that one's answer is for a placement sent before it: the same loss's.
   test("a loss is told once, however many documents it took", async () => {
-    const link = new Link({ write: () => {}, known: { native: true }, clock: new FakeClock() });
-    const msgs: SessionMessage[] = [];
-    const s = new Session({ link, onMessage: (m) => msgs.push(m) });
-    s.detect();
-    await settle();
-    msgs.length = 0;
+    const { s, msgs, gone, marked } = await bare();
     const want = ["a", "b", "c"].map((name, i) => card(name, 0, i * 2));
-    // The host's ENOENT for a placement of a surface it does not have.
-    const gone = async (name: string) => {
-      link.bytes(encode([["a", "err"], ["s", name], ["re", "place"]], pack({ code: "ENOENT", detail: `no surface ${name}` })));
-      await settle();
-      return msgs.splice(0);
-    };
     s.layout(want);
     s.flush();
     assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: true }], "the first ENOENT");
+    assert.deepEqual(await gone("b"), [], "b's ENOENT before the documents went again");
     s.layout(want);
-    let out = s.flush();
-    assert.ok(out.includes("a=doc:s=a") && !out.includes("a=doc:s=b"), out);
-    for (const name of ["b", "c"]) assert.deepEqual(await gone(name), [{ kind: "relayout", lost: false }], `${name}'s ENOENT`);
-    s.layout(want);
-    out = s.flush();
-    assert.ok(out.includes("a=doc:s=b") && out.includes("a=doc:s=c") && !out.includes("a=doc:s=a"), out);
-    // They are lost again: the placements after the erase went after the
-    // report.
+    const out = s.flush();
+    for (const name of ["a", "b", "c"]) assert.ok(out.includes(`a=doc:s=${name}`), `${name} not sent again: ${out}`);
+    assert.ok(out.split(":n=").length === 2 && out.includes("a=doc:s=a:n="), `one document numbered, the first: ${out}`);
+    assert.deepEqual(await gone("c"), [], "c's ENOENT before the mark's answer");
+    assert.deepEqual(await marked(out), [], "the mark's answer is the Session's");
+    // The placements after the erase went after the mark: a loss of its own.
     s.watch("\x1b[2J");
     await settle();
     assert.deepEqual(msgs.splice(0), [{ kind: "relayout", lost: false }], "the erase");
     s.layout(want);
     assert.equal(s.flush().split("a=place").length - 1, 3, "all three placed again");
     assert.deepEqual(await gone("b"), [{ kind: "relayout", lost: true }], "a second loss");
-    assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: false }], "a's ENOENT in the second loss");
+    assert.deepEqual(await gone("a"), [], "a's ENOENT in the second loss");
+  });
+
+  // Two frames in flight when the host loses its documents (margin's case,
+  // behind a relay): the second frame's ENOENTs come after the documents
+  // went again, and before the mark's answer, so they are still the first
+  // loss's.
+  test("a loss behind two frames in flight is told once", async () => {
+    const { s, gone, marked } = await bare();
+    const at = (y: number) => [card("a", 0, y), card("b", 0, y + 2)];
+    s.layout(at(0));
+    s.flush();
+    s.layout(at(1));
+    assert.equal(s.flush().split("a=place").length - 1, 2, "the second frame");
+    assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: true }], "the first ENOENT");
+    assert.deepEqual(await gone("b"), [], "b's first ENOENT");
+    s.layout(at(1));
+    const out = s.flush();
+    for (const name of ["a", "b"]) assert.deepEqual(await gone(name), [], `${name}'s second ENOENT`);
+    await marked(out);
+    assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: true }], "an ENOENT after the mark's answer");
+  });
+
+  // A mark whose answer never comes (the host that would have sent it went
+  // away) holds for 3 s; an ENOENT after that is a loss again.
+  test("a mark whose answer never comes holds for 3 s", async () => {
+    const { s, clock, gone } = await bare();
+    const want = [card("a", 0, 0)];
+    s.layout(want);
+    s.flush();
+    await gone("a");
+    s.layout(want);
+    s.flush();
+    assert.deepEqual(await gone("a"), [], "an ENOENT inside the mark");
+    clock.t += 2999;
+    assert.deepEqual(await gone("a"), [], "an ENOENT just inside it");
+    clock.t += 1;
+    assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: true }], "an ENOENT past the mark");
+  });
+
+  // A mark answered after it timed out, once a second loss has a mark of its
+  // own: still the Session's, never an ack, and the second mark holds until
+  // its own answer.
+  test("an old mark answered late is the Session's", async () => {
+    const { s, clock, gone, marked } = await bare();
+    const want = [card("a", 0, 0)];
+    s.layout(want);
+    s.flush();
+    await gone("a");
+    s.layout(want);
+    const first = s.flush();
+    clock.t += 3000;
+    assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: true }], "an ENOENT past the first mark");
+    s.layout(want);
+    const second = s.flush();
+    assert.notEqual(/:n=(\d+)/.exec(first)?.[1], /:n=(\d+)/.exec(second)?.[1], "two marks");
+    assert.deepEqual(await marked(first), [], "the first mark's late answer");
+    assert.deepEqual(await gone("a"), [], "an ENOENT inside the second mark");
+    assert.deepEqual(await marked(second), [], "the second mark's answer");
+    assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: true }], "an ENOENT after it");
   });
 
   // A hidden surface brought back after a loss goes with its document, rather
   // than finding it gone and reporting the loss again.
   test("a hidden surface goes with its document after a loss", async () => {
-    const link = new Link({ write: () => {}, known: { native: true }, clock: new FakeClock() });
-    const msgs: SessionMessage[] = [];
-    const s = new Session({ link, onMessage: (m) => msgs.push(m) });
-    s.detect();
-    await settle();
+    const { s, gone } = await bare();
     const a = card("a", 0, 0);
     const b = card("b", 0, 2, { keep: true });
     s.layout([a, b]);
     s.flush();
     s.layout([a]);
     assert.ok(s.flush().includes("a=hide:s=b"), "b hidden");
-    msgs.length = 0;
-    link.bytes(encode([["a", "err"], ["s", "a"], ["re", "place"]], pack({ code: "ENOENT", detail: "no surface a" })));
-    await settle();
-    assert.deepEqual(msgs, [{ kind: "relayout", lost: true }], "a's ENOENT");
+    assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: true }], "a's ENOENT");
     assert.equal(s.has("b"), false, "b's document is taken as lost");
     s.layout([a, b]);
     const out = s.flush();
