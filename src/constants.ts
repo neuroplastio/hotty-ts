@@ -55,7 +55,7 @@ export const EVENT_KINDS = [
 export type EventKind = (typeof EVENT_KINDS)[number];
 
 /** The error codes of an `a=err` reply (SPEC §3.6). */
-export const ERROR_CODES = ["EINVAL", "ENOENT", "ENOTARGET", "EDETACHED", "EQUOTA", "EBUDGET", "ESTALE", "EVERSION"] as const;
+export const ERROR_CODES = ["EINVAL", "ENOENT", "ENOTARGET", "EDETACHED", "EQUOTA", "EBUDGET", "ENOTERM", "ESTALE", "EVERSION"] as const;
 /** One of {@link ERROR_CODES}. */
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
