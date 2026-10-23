@@ -391,6 +391,30 @@ describe("Session", () => {
     assert.deepEqual(await gone("a"), [{ kind: "relayout", lost: false }], "a's ENOENT in the second loss");
   });
 
+  // A hidden surface brought back after a loss goes with its document, rather
+  // than finding it gone and reporting the loss again.
+  test("a hidden surface goes with its document after a loss", async () => {
+    const link = new Link({ write: () => {}, known: { native: true }, clock: new FakeClock() });
+    const msgs: SessionMessage[] = [];
+    const s = new Session({ link, onMessage: (m) => msgs.push(m) });
+    s.detect();
+    await settle();
+    const a = card("a", 0, 0);
+    const b = card("b", 0, 2, { keep: true });
+    s.layout([a, b]);
+    s.flush();
+    s.layout([a]);
+    assert.ok(s.flush().includes("a=hide:s=b"), "b hidden");
+    msgs.length = 0;
+    link.bytes(encode([["a", "err"], ["s", "a"], ["re", "place"]], pack({ code: "ENOENT", detail: "no surface a" })));
+    await settle();
+    assert.deepEqual(msgs, [{ kind: "relayout", lost: true }], "a's ENOENT");
+    assert.equal(s.has("b"), false, "b's document is taken as lost");
+    s.layout([a, b]);
+    const out = s.flush();
+    assert.ok(out.includes("a=doc:s=a") && out.includes("a=doc:s=b"), out);
+  });
+
   // The host loses every document and resource behind the program's back,
   // as one that restarts behind a relay does. The program's renderer erases
   // the screen, which asks for a plain relayout; the card's placement then

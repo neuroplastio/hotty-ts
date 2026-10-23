@@ -130,7 +130,8 @@ export type SessionMessage =
        * them again before layout, so that they reach the host ahead of the
        * document; sending one again replaces it. One loss is reported once,
        * however many documents it took: an ENOENT for a placement sent
-       * before the report is taken as the same loss's, and gives lost false.
+       * before the report is taken as the same loss's, and gives lost false,
+       * and a hidden surface's document goes again with its next placement.
        * A full reset the Session watched go out is a loss of its own.
        */
       lost: boolean;
@@ -348,7 +349,18 @@ export class Session {
       // and have the program send the resources again, unless the placement
       // went before the last loss was reported.
       const lost = (this.#placedIn.get(s) ?? 0) === this.#lost;
-      if (lost) this.#lost++;
+      if (lost) {
+        this.#lost++;
+        // A host loses its documents together (a full reset, a restart
+        // behind a relay): the hidden ones go again with their next
+        // placement, which would find them gone and report this loss again.
+        // One on the screen answers its own placement.
+        for (const name of this.#hasDoc) {
+          if (this.#placed.has(name)) continue;
+          this.#hasDoc.delete(name);
+          this.#flags.delete(name);
+        }
+      }
       this.#hasDoc.delete(s);
       this.#placed.delete(s);
       this.#flags.delete(s);
