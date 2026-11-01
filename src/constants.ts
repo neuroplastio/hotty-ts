@@ -61,9 +61,9 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 
 /**
  * The optional features a host may have (SPEC §4), as its capabilities list
- * them ({@link Caps.has}). Everything else a 0.5 host does.
+ * them ({@link Caps.has}). Everything else a 0.6 host does.
  */
-export const FEATURES = ["passthrough", "hover", "count", "menu"] as const;
+export const FEATURES = ["passthrough", "hover", "count", "menu", "backdrop"] as const;
 /** One of {@link FEATURES}. */
 export type Feature = (typeof FEATURES)[number];
 

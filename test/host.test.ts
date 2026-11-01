@@ -881,6 +881,20 @@ describe("Host 0.6", () => {
     h.unhover();
     assert.deepEqual(h.events(), []);
   });
+
+  test("b=1 goes out after z, and without the feature backdrop the host ignores it: the surface is above the cells, and takes presses and the keyboard (SPEC §5.2, §15)", () => {
+    const placed = place("s", { cols: 10, rows: 1, z: 2, press: true, backdrop: true });
+    assert.equal(placed, "\x1b]7279;a=place:s=s:c=10:r=1:z=2:b=1:p=1\x1b\\");
+    assert.equal(place("s", { cols: 10, rows: 1, backdrop: false }), place("s", { cols: 10, rows: 1 }), "false sends no b");
+    const h = new Host();
+    assert.equal(h.caps.has("backdrop"), false);
+    h.write(doc("s", "<button id=b>b</button>") + placed);
+    h.take();
+    h.press("s", "b");
+    h.write(focus("s", "b"));
+    assert.equal(h.keyboard, h.surface("s"));
+    assert.deepEqual(h.events().map((e) => e.kind), ["press"]);
+  });
 });
 
 describe("Host resets and losses", () => {

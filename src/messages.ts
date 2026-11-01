@@ -499,7 +499,7 @@ export class Caps {
 
   /**
    * Whether the host has an optional feature (SPEC §4): `passthrough`,
-   * `hover`, `count` or `menu`. Everything else a 0.5 host does.
+   * `hover`, `count`, `menu` or `backdrop`. Everything else a 0.6 host does.
    */
   has(feature: Feature | (string & {})): boolean {
     return this.features.includes(feature);

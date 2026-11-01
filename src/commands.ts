@@ -93,6 +93,18 @@ export interface Placement {
   hover?: boolean;
   /** Leaves the cursor where it was (`C=1`); otherwise it goes to the start of the line below. */
   keepCursor?: boolean;
+  /**
+   * Draws the placement under the cells, as a backdrop (`b=1`, SPEC §5.2):
+   * the text and every cell with a background of its own cover it, and it
+   * takes no pointer and never the keyboard. Like z, it belongs to the
+   * placement: a placement without it is above the cells, so a program
+   * that places a backdrop every frame says so every time. A host without
+   * the feature `backdrop` (`caps.has("backdrop")`) ignores it and draws
+   * the surface over the text, so a program asks first, and without it
+   * draws in cells instead. It is the last field (SDK.md Appendix A),
+   * though `b` goes out after `z`.
+   */
+  backdrop?: boolean;
 }
 
 // command encodes a command with its default quiet level and the options:
@@ -167,6 +179,7 @@ function placementControl(surface: string, p: Placement): Control {
     if (!whole) pairs.push(["x", w.x], ["y", w.y], ["w", w.w], ["h", w.h]);
   }
   if (p.z) pairs.push(["z", p.z]);
+  if (p.backdrop) pairs.push(["b", 1]);
   for (const [k, f] of [["p", p.press], ["f", p.fit], ["v", p.hover]] as const) if (f !== undefined) pairs.push([k, f ? 1 : 0]);
   if (p.keepCursor) pairs.push(["C", 1]);
   return new Control(pairs);

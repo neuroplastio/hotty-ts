@@ -92,6 +92,7 @@ function placement(p: Any): hotty.Placement {
     fit: p.fit,
     hover: p.hover,
     keepCursor: p.keep_cursor,
+    backdrop: p.backdrop,
   };
 }
 
