@@ -1255,8 +1255,9 @@ export class Host implements AsyncIterable<Uint8Array> {
    * elements from the root to it): it edits its value at a caret and a
    * selection this host keeps, as a Field does, with input for each edit
    * (data-on~=input); Shift with a move selects (Keymap.selects), and
-   * select-all selects the value; submit commits it and submits its form;
-   * characters type, in place of the selection.
+   * select-all selects the value; submit (Enter in an input) commits it,
+   * in a form or not, then submits its form if it is in one; characters
+   * type, in place of the selection.
    *
    * Any other element has a keymap too, read the same way but with no
    * default keymap (Keymap.program): a key it binds to `program` reaches the
@@ -1359,11 +1360,11 @@ export class Host implements AsyncIterable<Uint8Array> {
     const a = keys.lookup(key);
     if (a === undefined) return false;
     if (a === "submit") {
+      // Enter's action in an input commits the field, in a form or not,
+      // then submits its form if it is in one (SPEC §9, §10.2).
+      this.#commit(s);
       const form = closest(el, (n) => n.tagName === "form");
-      if (form) {
-        this.#commit(s);
-        this.#submit(s, form, undefined);
-      }
+      if (form) this.#submit(s, form, undefined);
       return true;
     }
     // No copy or cut with nothing selected, nor in a password field: the

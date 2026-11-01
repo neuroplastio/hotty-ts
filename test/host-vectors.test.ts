@@ -57,8 +57,8 @@ function sent(h: Host): { replies: Reply[]; events: Event[] } {
 // What a vector may require of this host (conformance/README.md, SDK.md
 // §4.4): the features it reports, whose pointer and key steps it skips all
 // the same, since it lays nothing out. A vector that requires anything
-// else, scroll, steps, drop, view, touch, mouse, undo, passthrough or
-// commands, is skipped.
+// else, scroll, steps, drop, view, touch, mouse, undo, passthrough,
+// backdrop or commands, is skipped.
 const implements_ = new Set(["hover", "count", "menu"]);
 const requires = (v: Any): string[] => [v.requires ?? []].flat();
 

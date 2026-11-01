@@ -516,6 +516,20 @@ describe("Host keys in a field", () => {
     h.key("q");
     assert.deepEqual(sent(h), ['ev input t=f {"value":"xyz","rev":1}', 'ev input t=f {"value":"xyzq","rev":2}']);
   });
+
+  test("a key bound to submit commits the field, in a form or not, as Enter does in an input: a textarea's ctrl+enter (SPEC §9, §10.2)", () => {
+    const { h } = surface('<textarea id=n data-keys="ctrl+enter=submit">a</textarea>');
+    h.write(focus("s", "n"));
+    h.take();
+    assert.equal(h.key("ctrl+enter"), true);
+    assert.deepEqual(sent(h), [], "nothing changed, nothing to commit");
+    for (const k of ["enter", "b"]) h.key(k);
+    assert.deepEqual(sent(h), [], "enter is a new line");
+    assert.equal(h.key("ctrl+enter"), true);
+    assert.deepEqual(sent(h), ['ev change t=n {"value":"a\\nb","rev":2}']);
+    h.key("tab");
+    assert.deepEqual(sent(h), ["ev blur t="], "committed once");
+  });
 });
 
 describe("Host drags with steps", () => {
