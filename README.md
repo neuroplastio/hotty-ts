@@ -7,19 +7,19 @@ user does in them. It follows the hotty repository's SDK.md: the same two
 layers, names and defaults as the other SDKs, and every SDK section of the
 conformance vectors.
 
-It speaks hotty 0.5: a host's replies and events carry msgpack bodies
-(SPEC §3.3), its query lists the version it speaks (`a=q:n=1:v=0.5`,
+It speaks hotty 0.6: a host's replies and events carry msgpack bodies
+(SPEC §3.3), its query lists the version it speaks (`a=q:n=1:v=0.6`,
 SPEC §4), and keys are named as myelin key names 0.1 names them (SPEC
 §10.4): `ctrl+a`, `arrow_left`, `shift+g`, and `mod+s` in a binding. A
-terminal of another hotty version, a 0.4 one included, is no host to it,
-and the program draws in cells. Moving a program from 0.4 is CHANGES.md's
-"Upgrading from 0.4" in the hotty repository, and SDK.md's Appendix E.
+terminal of another hotty version, a 0.5 one included, is no host to it,
+and the program draws in cells. Moving a program from 0.5 is CHANGES.md's
+"Upgrading from 0.5" in the hotty repository, and SDK.md's Appendix F.
 
 ```
 npm install @neuroplastio/hotty
 ```
 
-0.5.x speaks hotty 0.5; the patch number is this repository's own.
+0.6.x speaks hotty 0.6; the patch number is this repository's own.
 
 ```ts
 import { NoTerminalError, Terminal } from "@neuroplastio/hotty/terminal";
@@ -86,6 +86,13 @@ t.send(delta("app-bar", [varOp("fill", "p", 40), text("label", "40 of 100")]));
 `press`, `fit` and `hover` of a placement are `true`, `false` or absent: they
 belong to the surface (SPEC §5.2), and a placement that leaves them out
 leaves them as they were. A `Session` sends each only when it changes.
+
+`backdrop: true` places a surface under the cells, as a backdrop (`b=1`,
+SPEC §5.2): the text and every cell with a background of its own cover it,
+and it takes no pointer and never the keyboard. It belongs to the
+placement, as `z` does, so a placement without it is above the cells. A
+host without the feature ignores it and draws the surface over the text:
+place one only where `caps.has("backdrop")`, and otherwise draw in cells.
 
 A reply to a delta names the op that failed by its index (`reply.op`). A
 program that can do things sends them as a menu tree (`menu`), shows the
@@ -216,14 +223,14 @@ keepCursor })`.
   `fields()`, a `Caps` field the host left out. A submit's `fields()` are
   pairs, `[name, value][]`; `mods()` is the modifier bits (`MOD_SHIFT`, …).
 - **Versions.** The query lists the version the SDK speaks, `VERSION`
-  (`a=q:n=1:v=0.5`, SPEC §4), and detection takes the terminal for a host
+  (`a=q:n=1:v=0.6`, SPEC §4), and detection takes the terminal for a host
   only when it answers with capabilities that decode and name it. Any other
   answer to the query, an error (`EVERSION` from a host of other versions,
   or another code) or capabilities it cannot read (a 0.1 host's JSON) or of
   another version, is text at once, done with the DA1 behind it: `detect()`
   is false, `caps` absent, and the reply, detection's, never reaches the
   input. With `late`, only a reply that makes the terminal a host is the
-  late answer. The test host speaks 0.5 only, and answers a query that does
+  late answer. The test host speaks 0.6 only, and answers a query that does
   not list it with `EVERSION`.
 - **Errors** are exceptions: `HottyError` (from `reply.err()`), and
   `NoAnswerError` when a request or a fence gets no answer in time, which
@@ -267,7 +274,7 @@ keepCursor })`.
 ## Conformance
 
 The vectors are the hotty repository's `conformance/vectors.json`, of
-version 0.5, copied to `test/testdata`, and checked against a checkout of
+version 0.6, copied to `test/testdata`, and checked against a checkout of
 hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 
 - **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan`, `detect`,
@@ -277,12 +284,12 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 - **Host section.** The test host runs the commands, the inspections, the
   keys, the menu steps and the writes of the host vectors (`Host.key`,
   `Host.shown`, `Host.pick`), and keeps the touch areas a program sends for
-  each screen (`Host.touchAreas`). It keeps each control's `rev` and each text field's selection, takes `a=field` and sends `caret`. It has the features `hover`, `count` and `menu`, and lays
+  each screen (`Host.touchAreas`). It keeps each control's `rev` and each text field's selection, takes `a=field` and sends `caret`. Enter in a text input, or a key bound to `submit`, commits the field, in a form or not, and then submits its form. It has the features `hover`, `count` and `menu`, not `backdrop`, whose `b` it ignores, and lays
   nothing out, so the rows it gives `r=auto` are an estimate and are not
   checked, and an event's `area` is not either; `reveal` answers as a host
   does and scrolls nothing, and it sends no `view`. It skips the vectors
   that require `scroll`, `steps`, `drop`, `view`, `touch`, `mouse`,
-  `undo`, `passthrough` or `commands` (SDK.md §4.4). The vectors' pointer steps
+  `undo`, `passthrough`, `backdrop` or `commands` (SDK.md §4.4). The vectors' pointer steps
   (drags, presses, hover) and the events that follow from a layout are not
   run: a vector whose every check is in such steps is reported as skipped.
   An event's detail is compared each value of its type: the vectors' floats
