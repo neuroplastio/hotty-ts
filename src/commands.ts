@@ -121,7 +121,7 @@ export interface QueryOptions {
 
 /**
  * Asks whether the terminal is a hotty host that speaks {@link VERSION},
- * fenced by Primary Device Attributes (SPEC §4): `a=q:n=<n>:v=0.5`. A host
+ * fenced by Primary Device Attributes (SPEC §4): `a=q:n=<n>:v=0.6`. A host
  * replies to the query, numbered n, before the DA1 answer every terminal
  * sends: its capabilities, or EVERSION when it speaks no version the query
  * lists.

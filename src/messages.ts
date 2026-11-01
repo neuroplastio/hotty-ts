@@ -455,7 +455,7 @@ const isEmpty = (v: unknown): boolean => {
  * the SDK does not know is in raw.
  */
 export class Caps {
-  /** The protocol version the host answers in (SPEC §4): "0.5", for a host this SDK uses. */
+  /** The protocol version the host answers in (SPEC §4): "0.6", for a host this SDK uses. */
   readonly v: string | undefined;
   /** A cell's size in CSS pixels (SPEC §5.3); undefined when the host did not say. */
   readonly cellCss: { w: number; h: number } | undefined;

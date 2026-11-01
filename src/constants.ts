@@ -12,7 +12,7 @@ export const MAX_NAME = 64;
  * The protocol version this SDK speaks (SPEC §4): its query lists it, and a
  * host's capabilities must name it for the SDK to use the host.
  */
-export const VERSION = "0.5";
+export const VERSION = "0.6";
 
 /** Which replies the host sends for a command (SPEC §3.5). */
 export type Quiet = 0 | 1 | 2;

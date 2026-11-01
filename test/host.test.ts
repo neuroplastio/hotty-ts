@@ -188,14 +188,14 @@ describe("Host bodies", () => {
     h.write(query(1) + focus("nope", "", { n: 2 }));
     const [q, err] = h.replies();
     const body = typed(q!.payload);
-    assert.equal(body.v, "0.5");
+    assert.equal(body.v, "0.6");
     assert.deepEqual(body.scale, new Float(2));
     assert.deepEqual(body.cellcss, { w: new Float(4.5), h: new Float(9) });
     assert.deepEqual(body.features, ["hover", "count", "menu"]);
     assert.deepEqual(body.later, [1, new Float(0.5)]);
     assert.ok(!("host" in body));
     const caps = q!.reply()!.caps()!;
-    assert.deepEqual([caps.v, caps.scale, caps.cellCss, caps.raw.later], ["0.5", 2, { w: 4.5, h: 9 }, [1, 0.5]]);
+    assert.deepEqual([caps.v, caps.scale, caps.cellCss, caps.raw.later], ["0.6", 2, { w: 4.5, h: 9 }, [1, 0.5]]);
     assert.deepEqual([caps.has("menu"), caps.has("passthrough")], [true, false]);
     assert.deepEqual(typed(err!.payload), { code: "ENOENT", detail: "no surface nope" });
     assert.deepEqual([err!.reply()!.code, err!.reply()!.detail], ["ENOENT", "no surface nope"]);
@@ -387,7 +387,7 @@ describe("Host keys", () => {
     old.becomeHost();
     assert.deepEqual(
       old.replies().map((r) => [r.get("a"), r.get("n"), r.reply()!.code, r.reply()!.detail]),
-      [["err", "7", "EVERSION", "0.5"]],
+      [["err", "7", "EVERSION", "0.6"]],
       "answered as any query: one that lists no version is EVERSION",
     );
     const h = new Host({ text: true });
@@ -612,7 +612,7 @@ describe("Host drops", () => {
   });
 });
 
-describe("Host 0.5", () => {
+describe("Host 0.6", () => {
   const controls = (h: Host) => h.replies().map((r) => Object.fromEntries(r.control));
 
   test("a delta is checked whole: a malformed op rejects it all, with its index; a missing target fails its op alone, the others apply (SPEC §6.1)", () => {
