@@ -27,7 +27,7 @@ const DRAG: Type = { c: "int", r: "int", mods: "int", x: "int", y: "int", tx: "i
 /** Each kind's detail; a kind not here carries none a program reads. */
 export const DETAIL: ReadonlyMap<string, Type> = new Map([
   ["click", { value: "str", href: "str", url: "str", area: AREA, mods: "int", count: "int" }],
-  ["press", { area: AREA, mods: "int" }],
+  ["press", { area: AREA, mods: "int", button: "int", c: "int", r: "int" }],
   ["change", { checked: "bool", value: "str", rev: "int" }],
   ["input", { value: "str", rev: "int", sel: ["int"] }],
   ["caret", { sel: ["int"], rev: "int" }],

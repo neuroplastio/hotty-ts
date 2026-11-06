@@ -325,6 +325,33 @@ export class Event {
     return typeof m === "number" ? m : 0;
   }
 
+  /**
+   * A press's button, as the DOM numbers it (SPEC §9): 2 for a secondary
+   * press, 0 for the primary's, which is also what a press with none reads,
+   * and any other kind. A handler of press that means the primary button
+   * checks it: a secondary press comes to it too, from every element with
+   * secondary in its data-on. A button that is no int leaves the whole
+   * detail unread (SPEC §3.3).
+   */
+  button(): number {
+    const b = this.kind === "press" ? this.#d?.button : undefined;
+    return typeof b === "number" ? b : 0;
+  }
+
+  /**
+   * The pointer's column on a secondary press (SPEC §9), in the surface's
+   * cells; it may be negative. Absent on a primary press, and for any other
+   * kind. A handler meaning the primary button checks {@link Event.button}.
+   */
+  c(): number | undefined {
+    return this.kind === "press" ? (this.#d?.c as number | undefined) : undefined;
+  }
+
+  /** The pointer's row on a secondary press (SPEC §9); as {@link Event.c}. */
+  r(): number | undefined {
+    return this.kind === "press" ? (this.#d?.r as number | undefined) : undefined;
+  }
+
   /** A clicked link: its href, and its url when there is one. */
   link(): Link | undefined {
     const href = this.#d?.href as string | undefined;
