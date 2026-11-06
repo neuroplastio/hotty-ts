@@ -222,6 +222,7 @@ keepCursor })`.
 - **Absence** is `undefined`: a reply's `code` and `op`, an event's
   `fields()`, a `Caps` field the host left out. A submit's `fields()` are
   pairs, `[name, value][]`; `mods()` is the modifier bits (`MOD_SHIFT`, …).
+  A `press`'s `button()` is the DOM's number, 2 for a secondary press and 0 for the primary's (also when absent), and its `c()` and `r()` are the pointer's cell on a secondary press, `undefined` otherwise (SPEC §9); a handler meaning the primary button checks `button()`.
 - **Versions.** The query lists the version the SDK speaks, `VERSION`
   (`a=q:n=1:v=0.6`, SPEC §4), and detection takes the terminal for a host
   only when it answers with capabilities that decode and name it. Any other
@@ -284,7 +285,7 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 - **Host section.** The test host runs the commands, the inspections, the
   keys, the menu steps and the writes of the host vectors (`Host.key`,
   `Host.shown`, `Host.pick`), and keeps the touch areas a program sends for
-  each screen (`Host.touchAreas`). It keeps each control's `rev` and each text field's selection, takes `a=field` and sends `caret`. Enter in a text input, or a key bound to `submit`, commits the field, in a form or not, and then submits its form. It has the features `hover`, `count` and `menu`, not `backdrop`, whose `b` it ignores, and lays
+  each screen (`Host.touchAreas`). `Host.secondaryPress(surface, id, c, r, keys?)` presses the secondary button: a `press` with `button` 2, `c`, `r` and `mods`, from the nearest element with `secondary` in its `data-on`, and nothing with none, with Shift, or with Alt (the program's gesture). It keeps each control's `rev` and each text field's selection, takes `a=field` and sends `caret`. Enter in a text input, or a key bound to `submit`, commits the field, in a form or not, and then submits its form. It has the features `hover`, `count` and `menu`, not `backdrop`, whose `b` it ignores, and lays
   nothing out, so the rows it gives `r=auto` are an estimate and are not
   checked, and an event's `area` is not either; `reveal` answers as a host
   does and scrolls nothing, and it sends no `view`. It skips the vectors

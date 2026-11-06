@@ -1114,6 +1114,37 @@ export class Host implements AsyncIterable<Uint8Array> {
     this.#pressAt(s, el, modBits(keys));
   }
 
+  /**
+   * Presses the secondary button (a right click) at cell c, r of the
+   * surface, on the element with an id, or on empty space ("") (SPEC §9):
+   * reported as a press with button 2, c, r and the modifier keys held, by
+   * the nearest element from it outward with secondary in its data-on, as its
+   * id (t, absent when it has none). It needs no p, and carries the area the
+   * test gave that element (setArea), as a primary press does.
+   *
+   * With no such element nothing is reported: the press is the terminal's.
+   * So it is with Shift held, which gives the terminal's menu. With Alt it
+   * is the program's own gesture, as press's is (SPEC §9.2): the pointer
+   * leaves the window, and the surface hears nothing more. Otherwise it
+   * makes no click, focus or blur, moves no keyboard, starts no drag and
+   * changes no hover. This host does no touch, so it makes no long press.
+   *
+   * It throws the errors press does, and "detached" on a detached surface.
+   */
+  secondaryPress(surface: string, id: string, c: number, r: number, keys: readonly string[] = []): void {
+    const s = this.#target(surface);
+    const el = id === "" ? undefined : this.#element(s, id);
+    if (s.detached) throw this.#detachedError(s);
+    if (this.#alt1(s, keys)) return;
+    const mods = modBits(keys);
+    if ((mods & MOD_SHIFT) !== 0) return;
+    const on = closest(el, listens("secondary"));
+    if (!on) return;
+    const t = attr(on, "id") ?? "";
+    const detail = { button: 2, c, r, ...areaOf(s, t), ...(mods !== 0 ? { mods } : {}) };
+    this.#event(s, "press", t, detail);
+  }
+
   #pressAt(s: Surface, el: El | undefined, mods: number) {
     const n = closest(el, (n) => attr(n, "id") !== undefined);
     const id = n ? attr(n, "id")! : "";

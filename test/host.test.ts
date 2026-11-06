@@ -35,6 +35,8 @@ import {
   unpack,
   withdrawLate,
 } from "../src/index.ts";
+import { MOD_CTRL, MOD_SUPER } from "../src/constants.ts";
+import { attr as domAttr } from "../src/test/dom.ts";
 import { pack } from "../src/msgpack.ts";
 import { Host } from "../src/test/index.ts";
 import { describe, test } from "./harness.ts";
@@ -934,5 +936,79 @@ describe("Host resets and losses", () => {
     h.write(place("a", { cols: 10, rows: 1 }));
     const r = h.replies().at(-1)!.reply()!;
     assert.deepEqual([r.re, r.surface, r.code], ["place", "a", "ENOENT"]);
+  });
+});
+
+describe("Host secondary press", () => {
+  const html = `<div id=outer data-on="secondary"><div id=inner data-on="click secondary"><b id=b>x</b></div><b id=c>y</b></div>
+<div data-on=secondary><i id=anon>z</i></div><p id=plain>plain</p><input id=f type=text><button id=k data-on="secondary click">k</button>`;
+  const make = (press: boolean) => {
+    const h = new Host();
+    h.write(doc("p", html) + place("p", { cols: 20, rows: 5, press }));
+    h.events();
+    return h;
+  };
+  const got = (h: Host) =>
+    h.events().map((e) => ({ kind: e.kind, t: e.target, button: e.button(), c: e.c(), r: e.r(), mods: e.mods(), area: e.area() }));
+
+  test("the innermost element with secondary reports a press with button 2, the cell and the mods, with p=0 and p=1", () => {
+    for (const press of [false, true]) {
+      const h = make(press);
+      h.secondaryPress("p", "b", 3, 1);
+      h.secondaryPress("p", "c", -4, 2, ["ctrl", "super"]);
+      assert.deepEqual(got(h), [
+        { kind: "press", t: "inner", button: 2, c: 3, r: 1, mods: 0, area: undefined },
+        { kind: "press", t: "outer", button: 2, c: -4, r: 2, mods: MOD_CTRL | MOD_SUPER, area: undefined },
+      ]);
+    }
+  });
+
+  test("an opt-in with no id has t absent", () => {
+    const h = make(false);
+    h.secondaryPress("p", "anon", 0, 0);
+    assert.deepEqual(got(h).map((e) => [e.t, e.button, e.c, e.r]), [["", 2, 0, 0]]);
+  });
+
+  test("the area is the opt-in element's, if the test gave it one", () => {
+    const h = make(false);
+    h.setArea("p", "inner", { c: 1, r: 1, w: 5, h: 1 });
+    h.secondaryPress("p", "b", 2, 1);
+    h.secondaryPress("p", "c", 2, 2);
+    assert.deepEqual(got(h).map((e) => e.area), [{ c: 1, r: 1, w: 5, h: 1 }, undefined]);
+  });
+
+  test("with no opt-in, Shift, or Alt, nothing is reported; Alt takes the pointer out", () => {
+    const h = make(true);
+    h.secondaryPress("p", "plain", 1, 1);
+    h.secondaryPress("p", "", 1, 1);
+    h.secondaryPress("p", "b", 1, 1, ["shift"]);
+    h.secondaryPress("p", "b", 1, 1, ["alt"]);
+    assert.deepEqual(got(h), []);
+  });
+
+  test("it keeps the focus, and makes no click, blur or focus", () => {
+    const h = make(true);
+    h.fill("p", "f", "ab");
+    const before = h.events().length;
+    h.secondaryPress("p", "k", 2, 2);
+    h.secondaryPress("p", "b", 2, 2);
+    assert.deepEqual(got(h).slice(before).map((e) => [e.kind, e.t]), [["press", "k"], ["press", "inner"]]);
+    assert.equal(domAttr(h.surface("p")!.focusedNode, "id"), "f");
+  });
+
+  test("a primary press on an element with secondary has no button, c or r", () => {
+    const h = make(true);
+    h.press("p", "b");
+    const [e] = h.events();
+    assert.deepEqual([e!.kind, e!.target, e!.button(), e!.c(), e!.r()], ["press", "b", 0, undefined, undefined]);
+  });
+
+  test("its errors are press's, and a detached surface's", () => {
+    const h = make(false);
+    assert.throws(() => h.secondaryPress("nope", "b", 0, 0), /./);
+    assert.throws(() => h.secondaryPress("p", "nope", 0, 0), /./);
+    const d = new Host();
+    d.write(doc("d", html, { detached: true }) + place("d", { cols: 20, rows: 5 }));
+    assert.throws(() => d.secondaryPress("d", "b", 0, 0), /detached/);
   });
 });
