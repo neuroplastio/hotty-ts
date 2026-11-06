@@ -969,6 +969,13 @@ describe("Host secondary press", () => {
     assert.deepEqual(got(h).map((e) => [e.t, e.button, e.c, e.r]), [["", 2, 0, 0]]);
   });
 
+  test("empty space is the body: a body with secondary reports a press on \"\"", () => {
+    const h = new Host();
+    h.write(doc("b", "<body data-on=secondary><p id=x>x</p></body>") + place("b", { cols: 10, rows: 2 }));
+    h.secondaryPress("b", "", 4, 1);
+    assert.deepEqual(got(h).map((e) => [e.kind, e.t, e.button, e.c, e.r]), [["press", "", 2, 4, 1]]);
+  });
+
   test("the area is the opt-in element's, if the test gave it one", () => {
     const h = make(false);
     h.setArea("p", "inner", { c: 1, r: 1, w: 5, h: 1 });

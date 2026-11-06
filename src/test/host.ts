@@ -1133,7 +1133,7 @@ export class Host implements AsyncIterable<Uint8Array> {
    */
   secondaryPress(surface: string, id: string, c: number, r: number, keys: readonly string[] = []): void {
     const s = this.#target(surface);
-    const el = id === "" ? undefined : this.#element(s, id);
+    const el = id === "" ? s.body() : this.#element(s, id);
     if (s.detached) throw this.#detachedError(s);
     if (this.#alt1(s, keys)) return;
     const mods = modBits(keys);
