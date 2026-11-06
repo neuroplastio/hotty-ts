@@ -1,7 +1,7 @@
 // A builder for each action (SDK.md §3.4). Each returns the command's
 // sequences, ready to write.
 
-import { NO_REPLY, OPS, type OpName, type Quiet, REPLY_ALWAYS, REPLY_ON_ERROR, VERSION } from "./constants.ts";
+import { NO_REPLY, OPS, type OpName, type Quiet, REPLY_ALWAYS, REPLY_ON_ERROR, VERSIONS } from "./constants.ts";
 import { Control } from "./control.ts";
 import { encode } from "./encode.ts";
 import { HottyError, type Message } from "./messages.ts";
@@ -132,14 +132,15 @@ export interface QueryOptions {
 }
 
 /**
- * Asks whether the terminal is a hotty host that speaks {@link VERSION},
- * fenced by Primary Device Attributes (SPEC §4): `a=q:n=<n>:v=0.6`. A host
+ * Asks whether the terminal is a hotty host that speaks a version this SDK
+ * does ({@link VERSIONS}), fenced by Primary Device Attributes (SPEC §4):
+ * `a=q:n=<n>:v=0.6,0.7`, lowest first. A host
  * replies to the query, numbered n, before the DA1 answer every terminal
  * sends: its capabilities, or EVERSION when it speaks no version the query
  * lists.
  */
 export function query(n = 1, opts?: QueryOptions): string {
-  const ctl: [string, string | number][] = [["a", "q"], ["n", n], ["v", VERSION]];
+  const ctl: [string, string | number][] = [["a", "q"], ["n", n], ["v", [...VERSIONS].reverse().join(",")]];
   if (opts?.late) ctl.push(["late", 1]);
   return encode(ctl) + "\x1b[c";
 }

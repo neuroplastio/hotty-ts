@@ -7,11 +7,11 @@ user does in them. It follows the hotty repository's SDK.md: the same two
 layers, names and defaults as the other SDKs, and every SDK section of the
 conformance vectors.
 
-It speaks hotty 0.6: a host's replies and events carry msgpack bodies
-(SPEC §3.3), its query lists the version it speaks (`a=q:n=1:v=0.6`,
-SPEC §4), and keys are named as myelin key names 0.1 names them (SPEC
+It speaks hotty 0.7 and 0.6 (SPEC §15): a host's replies and events carry
+msgpack bodies (SPEC §3.3), its query lists the versions it speaks
+(`a=q:n=1:v=0.6,0.7`, SPEC §4), and keys are named as myelin key names 0.1 names them (SPEC
 §10.4): `ctrl+a`, `arrow_left`, `shift+g`, and `mod+s` in a binding. A
-terminal of another hotty version, a 0.5 one included, is no host to it,
+terminal that speaks neither, a 0.5 one included, is no host to it,
 and the program draws in cells. Moving a program from 0.5 is CHANGES.md's
 "Upgrading from 0.5" in the hotty repository, and SDK.md's Appendix F.
 
@@ -19,7 +19,7 @@ and the program draws in cells. Moving a program from 0.5 is CHANGES.md's
 npm install @neuroplastio/hotty
 ```
 
-0.6.x speaks hotty 0.6; the patch number is this repository's own.
+0.7.x speaks hotty 0.7, and 0.6 too; the patch number is this repository's own.
 
 ```ts
 import { NoTerminalError, Terminal } from "@neuroplastio/hotty/terminal";
@@ -226,16 +226,23 @@ keepCursor })`.
   0 for the primary's (also when absent), and its `c()` and `r()` are the
   pointer's cell on a secondary press, `undefined` otherwise (SPEC §9); a
   handler meaning the primary button checks `button()`.
-- **Versions.** The query lists the version the SDK speaks, `VERSION`
-  (`a=q:n=1:v=0.6`, SPEC §4), and detection takes the terminal for a host
-  only when it answers with capabilities that decode and name it. Any other
+- **Versions.** The SDK speaks `VERSIONS`, `["0.7", "0.6"]` (`VERSION` is
+  the newest, "0.7"). The query lists them, lowest first (`a=q:n=1:v=0.6,0.7`,
+  SPEC §4), and detection takes the terminal for a host only when it answers
+  with capabilities that decode and name one of them. The capabilities' `v`
+  (`link.caps.v`, `session.caps.v`) is the version the program met: a 0.6
+  host sends no secondary press (SDK.md §4.7), and a 0.7 program written for
+  it keeps its other handlers. `answerVersion(listed)` is what a host or
+  relay answers a query in: the highest version both list, or undefined,
+  which is `EVERSION` with the detail `0.6,0.7`. Any other
   answer to the query, an error (`EVERSION` from a host of other versions,
   or another code) or capabilities it cannot read (a 0.1 host's JSON) or of
   another version, is text at once, done with the DA1 behind it: `detect()`
   is false, `caps` absent, and the reply, detection's, never reaches the
   input. With `late`, only a reply that makes the terminal a host is the
-  late answer. The test host speaks 0.6 only, and answers a query that does
-  not list it with `EVERSION`.
+  late answer. The test host speaks both: it answers in the highest version the
+  query lists and stays in it. In a 0.6 session every `secondaryPress` is the
+  terminal's, with Alt too, and reports nothing.
 - **Errors** are exceptions: `HottyError` (from `reply.err()`), and
   `NoAnswerError` when a request or a fence gets no answer in time, which
   carries the replies read so far. `NoTerminalError` when the process has no
@@ -278,7 +285,7 @@ keepCursor })`.
 ## Conformance
 
 The vectors are the hotty repository's `conformance/vectors.json`, of
-version 0.6, copied to `test/testdata`, and checked against a checkout of
+version 0.7, copied to `test/testdata`, and checked against a checkout of
 hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 
 - **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan`, `detect`,
@@ -288,7 +295,9 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 - **Host section.** The test host runs the commands, the inspections, the
   keys, the menu steps and the writes of the host vectors (`Host.key`,
   `Host.shown`, `Host.pick`), and keeps the touch areas a program sends for
-  each screen (`Host.touchAreas`). 
+  each screen (`Host.touchAreas`). It declares `speaks-0.6`, so the vectors
+  of a host that speaks both run where its steps allow: the query steps, not
+  the pointer ones, which it skips as it does for every vector.
   `Host.secondaryPress(surface, id, c, r, keys?)` presses the secondary
   button: a `press` with `button` 2, `c`, `r` and `mods`, from the nearest
   element with `secondary` in its `data-on`, and nothing with none, with

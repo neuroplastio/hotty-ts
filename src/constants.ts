@@ -9,10 +9,28 @@ export const MAX_SIZE = 1000;
 /** The longest a surface name is (SPEC §3.5). */
 export const MAX_NAME = 64;
 /**
- * The protocol version this SDK speaks (SPEC §4): its query lists it, and a
- * host's capabilities must name it for the SDK to use the host.
+ * The newest protocol version this SDK speaks (SPEC §4): hotty 0.7. It speaks
+ * 0.6 too ({@link VERSIONS}).
  */
-export const VERSION = "0.6";
+export const VERSION = "0.7";
+/**
+ * Every protocol version this SDK speaks, highest first (SPEC §4, §15). Its
+ * query lists them lowest first (`v=0.6,0.7`), and a host's capabilities must
+ * name one of them for the SDK to use the host: `caps.v` is the version the
+ * session is in. A 0.6 host sends no secondary press (SDK.md §4.7).
+ */
+export const VERSIONS: readonly string[] = ["0.7", "0.6"];
+
+/**
+ * The version a host that speaks `spoken` (highest first, as {@link VERSIONS}
+ * is) answers a query listing `listed` in (SPEC §4): the highest one both
+ * have, or undefined when they share none, which is EVERSION, its detail
+ * `spoken` lowest first.
+ */
+export function answerVersion(listed: string | undefined, spoken: readonly string[] = VERSIONS): string | undefined {
+  const l = (listed ?? "").split(",");
+  return spoken.find((v) => l.includes(v));
+}
 
 /** Which replies the host sends for a command (SPEC §3.5). */
 export type Quiet = 0 | 1 | 2;

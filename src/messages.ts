@@ -145,7 +145,7 @@ export class Reply {
    * The capabilities an ok reply to a query carries; undefined when it
    * carries none, or they do not decode, as a 0.1 host's JSON does not.
    * Whatever version they name: the Detector takes the terminal for a host
-   * only when they name the SDK's VERSION.
+   * only when they name a version in VERSIONS.
    */
   caps(): Caps | undefined {
     if (!this.ok || this.re !== "q") return undefined;
@@ -482,7 +482,7 @@ const isEmpty = (v: unknown): boolean => {
  * the SDK does not know is in raw.
  */
 export class Caps {
-  /** The protocol version the host answers in (SPEC §4): "0.6", for a host this SDK uses. */
+  /** The protocol version the host answers in (SPEC §4): "0.7" or "0.6", for a host this SDK uses (VERSIONS); a 0.6 host sends no secondary press. */
   readonly v: string | undefined;
   /** A cell's size in CSS pixels (SPEC §5.3); undefined when the host did not say. */
   readonly cellCss: { w: number; h: number } | undefined;

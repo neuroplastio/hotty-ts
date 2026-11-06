@@ -420,12 +420,12 @@ export class Link {
   // --- detection ---------------------------------------------------------------
 
   /**
-   * Asks the terminal whether it is a hotty host that speaks this SDK's
-   * version (SPEC §4), once: later calls answer what the first found, or
+   * Asks the terminal whether it is a hotty host that speaks a version this
+   * SDK does (SPEC §4, VERSIONS; the capabilities' `v` is the one met), once: later calls answer what the first found, or
    * true once a late answer came. It resolves when the detection is done,
    * so that nothing of it is left for whatever reads the terminal next, or
    * with `decided`, as soon as it is known. A terminal that answers the
-   * query with an error (EVERSION) or with capabilities of another version,
+   * query with an error (EVERSION) or with capabilities of a version it did not list,
    * or answers neither the query nor DA1 within 1.5 s, is not a host; a
    * link made with `known` answers at once.
    */

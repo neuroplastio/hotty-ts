@@ -2,7 +2,7 @@
 
 import { CAPS, DETAIL, ERROR } from "../bodies.ts";
 import { deltaOf, menuFind, menuLevelOf, menuOf, menuShowOf, touchOf, type MenuItem, type MenuTree, type Op, type TouchArea } from "../commands.ts";
-import { MAX_SIZE, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER, VERSION } from "../constants.ts";
+import { MAX_SIZE, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER, VERSION, VERSIONS, answerVersion } from "../constants.ts";
 import { DEFAULT_MAX, Decoder } from "../decoder.ts";
 import { encode } from "../encode.ts";
 import { chars, Field } from "../field.ts";
@@ -127,8 +127,9 @@ export interface HostOptions {
    * each sent as its type (SPEC §4): scale as a float, whole or not.
    * `features` replaces the default list: a test that wants a host without
    * hover or menus names the ones it has. The
-   * host speaks VERSION whatever v they give: a query that does not list it
-   * gets EVERSION.
+   * host speaks VERSIONS whatever v they give: it answers a query in the
+   * highest version the query lists that it speaks, and a query that lists
+   * none gets EVERSION.
    */
   caps?: CapsBody;
   /**
@@ -599,10 +600,16 @@ export class Host implements AsyncIterable<Uint8Array> {
   #do(a: string, m: Message): { code?: string; detail?: string; extra: [string, string][] } {
     const ok = { extra: [] as [string, string][] };
     const err = (code: string, detail: string) => ({ code, detail, extra: [] as [string, string][] });
-    // This host speaks VERSION only (SPEC §4): it answers a query that lists
-    // it, in whatever order and among whatever others, and any other with
-    // EVERSION and the version it speaks.
-    if (a === "q") return (m.get("v") ?? "").split(",").includes(VERSION) ? ok : err("EVERSION", VERSION);
+    // This host speaks VERSIONS (SPEC §4, §15): it answers a query in the
+    // highest version the query lists, in whatever order and among whatever
+    // others, and one that lists none with EVERSION and the versions it
+    // speaks, lowest first. The session stays in the version answered.
+    if (a === "q") {
+      const v = answerVersion(m.get("v"));
+      if (v === undefined) return err("EVERSION", [...VERSIONS].reverse().join(","));
+      this.#caps.v = v;
+      return ok;
+    }
     if (a === "res") {
       const id = m.get("id");
       if (!id) return err("EINVAL", "missing id");
@@ -1123,7 +1130,9 @@ export class Host implements AsyncIterable<Uint8Array> {
    * test gave that element (setArea), as a primary press does.
    *
    * With no such element nothing is reported: the press is the terminal's.
-   * So it is with Shift held, which gives the terminal's menu. With Alt it
+   * So it is with Shift held, which gives the terminal's menu, and in a 0.6
+   * session (the program queried with v=0.6 only), which has no secondary
+   * press: the press is the terminal's, with Alt too. With Alt it
    * is the program's own gesture, as press's is (SPEC §9.2): the pointer
    * leaves the window, and the surface hears nothing more. Otherwise it
    * makes no click, focus or blur, moves no keyboard, starts no drag and
@@ -1135,6 +1144,9 @@ export class Host implements AsyncIterable<Uint8Array> {
     const s = this.#target(surface);
     const el = id === "" ? s.body() : this.#element(s, id);
     if (s.detached) throw this.#detachedError(s);
+    // 0.6 has no secondary press (SPEC §15): in its session it is the
+    // terminal's, with Alt held too.
+    if (this.#caps.v === "0.6") return;
     if (this.#alt1(s, keys)) return;
     const mods = modBits(keys);
     if ((mods & MOD_SHIFT) !== 0) return;

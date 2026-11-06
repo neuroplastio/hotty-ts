@@ -2,7 +2,7 @@
 // time passed in, in milliseconds.
 
 import { query } from "./commands.ts";
-import { VERSION } from "./constants.ts";
+import { VERSIONS } from "./constants.ts";
 import type { Caps, Reply } from "./messages.ts";
 
 /** How long to wait for any answer at all. */
@@ -30,7 +30,7 @@ export interface DetectorOptions {
 /**
  * Decides whether the terminal is a hotty host this SDK can use (SPEC §4).
  * A reply to the query makes it one when it is `a=ok` and its capabilities
- * decode and name {@link VERSION}; any other reply to the query, an error
+ * decode and name a version in {@link VERSIONS}; any other reply to the query, an error
  * (EVERSION or another) or capabilities that do not decode (a 0.1 host's
  * JSON) or name another version, makes it text at once. Every input first
  * lets the time pass: whatever was due at or before `now` happens before
@@ -106,7 +106,7 @@ export class Detector {
    * A reply arrived. Returns whether it answers the query (`re=q`, the
    * query's n, `a=ok` or `a=err`): it is detection's whenever it arrives,
    * and the caller swallows it. The first decides: a host when it is `a=ok`
-   * with capabilities that decode and name {@link VERSION}, text otherwise,
+   * with capabilities that decode and name one of {@link VERSIONS}, text otherwise,
    * and done when the DA1 behind it arrives or 300 ms later. A late one
    * changes nothing, unless the query asked for it: then the first that
    * makes the terminal a host does.
@@ -115,7 +115,7 @@ export class Detector {
     this.#fire(now);
     if (!(r.re === "q" && r.n === this.n)) return false;
     const caps = r.caps();
-    const host = caps !== undefined && caps.v === VERSION;
+    const host = caps !== undefined && caps.v !== undefined && VERSIONS.includes(caps.v);
     if (this.state === "detecting") {
       this.state = host ? "native" : "text";
       this.decided = true;
