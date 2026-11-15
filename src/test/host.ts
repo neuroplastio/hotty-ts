@@ -1342,13 +1342,14 @@ export class Host implements AsyncIterable<Uint8Array> {
   #useKey(s: Surface, key: string): boolean {
     const [mods, name] = splitName(key);
     const shiftOnly = mods.every((m) => m === "shift");
+    const el = s.focusedNode;
+    const platform = platformOf(this.caps);
     if (name === "tab" && shiftOnly) {
+      if (key === "tab" && el && textField(el) && resolveKeymap(platform, el.tagName === "textarea" || editingHost(el), ...keymaps(el)).program(key)) return false;
       this.#tab(s, mods.length > 0);
       return true;
     }
-    const el = s.focusedNode;
     if (!el) return false; // no element focused, no keymap (SPEC §10.2)
-    const platform = platformOf(this.caps);
     if (textField(el)) {
       // A key bound to prefix is not the field's: it and every key after it
       // reach the program (SPEC §10.2, §10.5).

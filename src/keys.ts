@@ -22,7 +22,7 @@ export const SCROLL_ACTIONS = [
 /** One of {@link SCROLL_ACTIONS}. */
 export type ScrollAction = (typeof SCROLL_ACTIONS)[number];
 
-/** The actions a keymap binds (SPEC §10.2): a text field's, `program`, `prefix`, and the scroll actions. */
+/** The actions a keymap binds (SPEC §10.2): a text field's, `program`, `prefix`, `default`, and the scroll actions. */
 export const ACTIONS = [
   "char-backward",
   "char-forward",
@@ -52,6 +52,7 @@ export const ACTIONS = [
   "paste",
   "undo",
   "redo",
+  "default",
   ...SCROLL_ACTIONS,
 ] as const;
 /** One of {@link ACTIONS}. */
@@ -550,6 +551,10 @@ const isAction = (a: string): a is Action => (ACTIONS as readonly string[]).incl
 const isScroll = (a: string): a is ScrollAction => (SCROLL_ACTIONS as readonly string[]).includes(a);
 const UNBINDABLE = new Set(["tab", "shift+tab", "escape"]);
 
+// Only resolve makes a field's keymap, retaining its defaults so that a
+// binding to default can give a key back to them (SDK.md §3.10).
+const fieldDefaults = new WeakMap<Keymap, Keymap>();
+
 /**
  * How a host reads bindings (SDK.md §3.10): the modifier `mod` stands for,
  * "ctrl" (the default) or "super" (SPEC §10.4), and its edit shortcuts,
@@ -607,13 +612,14 @@ export class Keymap {
   /**
    * Binds a key to an action, as a host reads a binding: false, and
    * nothing bound, when the key does not parse ({@link readKey}), the
-   * action is unknown, or the key is tab, shift+tab or escape. A key bound
+   * action is unknown, or the key is shift+tab, escape, or tab bound to
+   * anything but program or default. A key bound
    * again keeps its place, and is written as its last binding wrote it:
    * canonical, with `mod` first where it was written.
    */
   bind(key: string, action: string): boolean {
     const k = readKey(this.#platform, key);
-    if (k === undefined || !isAction(action) || UNBINDABLE.has(k)) return false;
+    if (k === undefined || !isAction(action) || (UNBINDABLE.has(k) && !(k === "tab" && (action === "program" || action === "default")))) return false;
     this.#bindings.set(k, action);
     this.#written.set(k, read(key, this.mod, true)!);
     return true;
@@ -649,6 +655,10 @@ export class Keymap {
     const b = this.#bound(key);
     if (b === undefined || UNBINDABLE.has(b.key)) return undefined;
     const a = b.action;
+    if (a === "default") {
+      const base = fieldDefaults.get(this);
+      return base ? base.lookup(b.key) : keyText(b.key) !== undefined ? INSERT : undefined;
+    }
     if (a !== undefined) return a === "program" || a === "prefix" || isScroll(a) || (MULTILINE_ACTIONS.has(a) && !this.multiline) ? undefined : a;
     return keyText(b.key) !== undefined ? INSERT : undefined;
   }
@@ -669,7 +679,8 @@ export class Keymap {
   /**
    * Whether the keymap gives a key to the program: binds it to `program`
    * or `prefix`, with the fallback of {@link binds} (SPEC §10.2, keys for
-   * the program).
+   * the program). Tab is given only by a field's keymap from resolve,
+   * bound to program; otherwise it moves focus.
    *
    * Every focused element has a keymap, and outside a text field it gives
    * only `program` and the scroll actions. A host reads the element's as a
@@ -682,7 +693,9 @@ export class Keymap {
    * much.
    */
   program(key: string): boolean {
-    const a = this.#bound(key)?.action;
+    const b = this.#bound(key);
+    if (b?.key === "tab" && !fieldDefaults.has(this)) return false;
+    const a = b?.action;
     return a === "program" || a === "prefix";
   }
 
@@ -717,6 +730,7 @@ export class Keymap {
   #bound(key: string): { key: string; action: Action | undefined } | undefined {
     const k = parseKey(key);
     if (k === undefined) return undefined;
+    if (k === "shift+tab" || k === "escape") return { key: k, action: undefined };
     let action = this.#bindings.get(k);
     if (action === undefined) {
       const [mods, value, kind] = split(k);
@@ -810,7 +824,8 @@ const SUPER_KEYS: readonly [string, Action][] = [
  * edit shortcuts, for an `input` or for a multi-line field, then each
  * `data-keys` value in turn, the root's first. A binding to a scroll action
  * is left out where it stands, in its own value too: it neither acts nor
- * overrides an earlier binding of its key.
+ * overrides an earlier binding of its key. A binding to default gives the
+ * key back to the platform's default keymap, or types it.
  */
 export function resolve(platform: Platform, multiline: boolean, ...values: string[]): Keymap {
   const m = new Keymap(multiline, platform);
@@ -819,6 +834,9 @@ export function resolve(platform: Platform, multiline: boolean, ...values: strin
   for (const [k, a] of modOf(platform) === "super" ? SUPER_KEYS : CTRL_KEYS) m.bind(k, a);
   const edit = platform.edit ?? defaultEdit(platform.mod);
   for (const a of EDIT_ACTIONS) for (const k of edit[a] ?? []) m.bind(k, a);
+  const base = new Keymap(multiline, platform);
+  for (const [k, a] of m.bindings()) base.bind(k, a);
+  fieldDefaults.set(m, base);
   for (const v of values) for (const [k, a] of bindingsOf(v)) if (!isScroll(a)) m.bind(k, a);
   return m;
 }

@@ -429,7 +429,7 @@ sections("keys", (v) => {
 });
 
 sections("keymap", (v) => {
-  if ("program" in v || "scroll" in v) {
+  if (("program" in v || "scroll" in v || "prefix" in v) && !("lookup" in v)) {
     // An element's keymap outside a text field: no default keymap.
     const m = hotty.parseKeymap(v.platform ?? {}, v.keys.join(" "));
     for (const [key, want] of Object.entries(v.program ?? {})) assert.equal(m.program(key), want, key);
@@ -445,6 +445,7 @@ sections("keymap", (v) => {
   for (const [key, want] of Object.entries(v.lookup)) assert.equal(nul(m.lookup(key)), want, key);
   for (const [key, want] of Object.entries(v.selects ?? {})) assert.equal(m.selects(key), want, `selects ${key}`);
   for (const [key, want] of Object.entries(v.binds ?? {})) assert.equal(m.binds(key), want, `binds ${key}`);
+  for (const [key, want] of Object.entries(v.program ?? {})) assert.equal(m.program(key), want, `program ${key}`);
 });
 
 sections("edit", (v) => {
