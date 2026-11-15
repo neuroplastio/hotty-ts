@@ -53,7 +53,7 @@ describe("Link in a push environment", () => {
     await settle();
     assert.equal(decided, true);
     assert.equal(done, undefined);
-    assert.equal(link.caps?.v, "0.7");
+    assert.equal(link.caps?.v, "0.8");
     await clock.advance(300);
     assert.equal(done, true);
     assert.deepEqual(passed, ["\x1b[?62;22c"], "the environment kept the DA1 it ate");

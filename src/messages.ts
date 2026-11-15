@@ -497,7 +497,7 @@ const isEmpty = (v: unknown): boolean => {
  * the SDK does not know is in raw.
  */
 export class Caps {
-  /** The protocol version the host answers in (SPEC §4): "0.7" or "0.6", for a host this SDK uses (VERSIONS); a 0.6 host sends no secondary press. */
+  /** The protocol version the host answers in (SPEC §4): "0.7" or "0.8", for a host this SDK uses (VERSIONS); a 0.7 host has no scroll op or hit. */
   readonly v: string | undefined;
   /** A cell's size in CSS pixels (SPEC §5.3); undefined when the host did not say. */
   readonly cellCss: { w: number; h: number } | undefined;
@@ -541,7 +541,7 @@ export class Caps {
 
   /**
    * Whether the host has an optional feature (SPEC §4): `passthrough`,
-   * `hover`, `count`, `menu` or `backdrop`. Everything else a 0.6 host does.
+   * `hover`, `count`, `menu` or `backdrop`. Everything else a 0.8 host does.
    */
   has(feature: Feature | (string & {})): boolean {
     return this.features.includes(feature);

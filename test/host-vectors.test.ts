@@ -59,7 +59,7 @@ function sent(h: Host): { replies: Reply[]; events: Event[] } {
 // the same, since it lays nothing out. A vector that requires anything
 // else, scroll, steps, drop, view, touch, mouse, undo, passthrough,
 // backdrop or commands, is skipped.
-const implements_ = new Set(["hover", "count", "menu", "speaks-0.6"]);
+const implements_ = new Set(["hover", "count", "menu", "speaks-0.7"]);
 const requires = (v: Any): string[] => [v.requires ?? []].flat();
 
 // The events a step made, against the step's: kind, surface, target (null:

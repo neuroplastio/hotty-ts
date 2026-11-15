@@ -134,13 +134,13 @@ export interface QueryOptions {
 /**
  * Asks whether the terminal is a hotty host that speaks a version this SDK
  * does ({@link VERSIONS}), fenced by Primary Device Attributes (SPEC §4):
- * `a=q:n=<n>:v=0.6,0.7`, lowest first. A host
+ * `a=q:n=<n>:v=0.7,0.8`, lowest first. A host
  * replies to the query, numbered n, before the DA1 answer every terminal
  * sends: its capabilities, or EVERSION when it speaks no version the query
  * lists.
  */
 export function query(n = 1, opts?: QueryOptions): string {
-  const ctl: [string, string | number][] = [["a", "q"], ["n", n], ["v", [...VERSIONS].reverse().join(",")]];
+  const ctl: [string, string | number][] = [["a", "q"], ["n", n], ["v", VERSIONS.join(",")]];
   if (opts?.late) ctl.push(["late", 1]);
   return encode(ctl) + "\x1b[c";
 }

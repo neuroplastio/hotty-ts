@@ -7,19 +7,19 @@ user does in them. It follows the hotty repository's SDK.md: the same two
 layers, names and defaults as the other SDKs, and every SDK section of the
 conformance vectors.
 
-It speaks hotty 0.7 and 0.6 (SPEC §15): a host's replies and events carry
+It speaks hotty 0.8 and 0.7 (SPEC §15): a host's replies and events carry
 msgpack bodies (SPEC §3.3), its query lists the versions it speaks
-(`a=q:n=1:v=0.6,0.7`, SPEC §4), and keys are named as myelin key names 0.1 names them (SPEC
+(`a=q:n=1:v=0.7,0.8`, SPEC §4), and keys are named as myelin key names 0.1 names them (SPEC
 §10.4): `ctrl+a`, `arrow_left`, `shift+g`, and `mod+s` in a binding. A
-terminal that speaks neither, a 0.5 one included, is no host to it,
-and the program draws in cells. Moving a program from 0.5 is CHANGES.md's
-"Upgrading from 0.5" in the hotty repository, and SDK.md's Appendix F.
+terminal that speaks neither, a 0.6 one included, is no host to it,
+and the program draws in cells. Moving a program from 0.7 is CHANGES.md's
+"Upgrading from 0.7" in the hotty repository, and SDK.md's Appendix G.
 
 ```
 npm install @neuroplastio/hotty
 ```
 
-0.7.x speaks hotty 0.7, and 0.6 too; the patch number is this repository's own.
+0.8.x speaks hotty 0.8, and 0.7 too; the patch number is this repository's own.
 
 ```ts
 import { NoTerminalError, Terminal } from "@neuroplastio/hotty/terminal";
@@ -75,13 +75,27 @@ and reads msgpack with its own decoder (below).
 A frame's changes to a surface go out as one delta, a list of ops that the
 host applies in order and shows as one (SPEC §6.1). The op builders make
 the ops; the one-op helpers (`setText`, `setAttr`, `setVar`, `removeAttr`,
-`morphTo`, `reveal`) stay for a single change:
+`morphTo`, `reveal`, `scroll`) stay for a single change:
 
 ```ts
 import { delta, menu, menuHide, menuShow, text, varOp } from "@neuroplastio/hotty";
 
 t.send(delta("app-bar", [varOp("fill", "p", 40), text("label", "40 of 100")]));
 ```
+
+`scroll(surface, target, action)` takes one of the host's steps for a scroll
+action such as `scroll-down` or `scroll-end`, from the target outward, or
+the root when the target is empty (SPEC §6.1). It moves no focus. A count
+is as many `scrollOp(target, action)` ops in one delta. Send it only on a
+0.8 host: a 0.7 host refuses a delta that holds it with `EINVAL`.
+
+A program carrying something over a surface asks what its cell holds with
+`hit(surface, c, r, options)` (SPEC §9.7). The cell counts from the surface's
+top left, negative above it and to its left. It is answered by default,
+with or without a request number. An ok reply's `hit` is `{ t, tx?, ty? }`:
+the element a drag would name there (`t` empty for none), and its drop
+steps where it has them. Other replies and bodies that do not decode leave
+`reply.hit` undefined. A 0.7 host has no `hit`; check `caps.v` first.
 
 `press`, `fit` and `hover` of a placement are `true`, `false` or absent: they
 belong to the surface (SPEC §5.2), and a placement that leaves them out
@@ -188,6 +202,15 @@ for (const key of decodeKeys(read)) {
 }
 ```
 
+In a field's keymap, `tab=program` gives Tab to the program, as a palette
+that completes text needs; `keys.program("tab")` says whether it does.
+Shift+Tab still moves focus back and Escape still reaches the program. A
+binding to `default` gives a key back to the host's own meaning: a field
+types a character or uses its platform's default binding, and a button
+with `space=default` presses on Space even under `space=program`.
+`tab=default` restores focus navigation in a field under `tab=program`.
+A 0.7 host ignores these bindings (SPEC §10.2; SDK.md §3.8).
+
 ## Examples
 
 Each one shows its hotty part in the open, and each is tested against the
@@ -213,7 +236,7 @@ The names are Appendix A's TypeScript column: `placeAt`, `setText`, `reveal`,
 `delRes`, `del` (`delete` is a reserved word), `fitRows`, `cellCss`, and on
 `Event` `view()`, and on `Caps` `has(feature)`. The op builders are `morph`,
 `inner`, `replace`, `append`, `prepend`, `before`, `after`, `remove`, `attr`,
-`unattr`, `text`, `varOp` and `revealOp`; a `FieldChange` is `{ rev, value, from, to, text, sel, checked }`, each but `rev` optional; an `Op` is `{ op, target, key,
+`unattr`, `text`, `varOp`, `revealOp` and `scrollOp`; a `FieldChange` is `{ rev, value, from, to, text, sel, checked }`, each but `rev` optional; an `Op` is `{ op, target, key,
 value }`, a menu is `{ label, items }` of `{ key, label, name, enabled,
 items }`, and a touch area `{ c, r, w, h, drag }`. Options are
 objects: `doc(s, html, { detached: true, q: 0 })`, `place(s, { cols, rows,
@@ -226,23 +249,24 @@ keepCursor })`.
   0 for the primary's (also when absent), and its `c()` and `r()` are the
   pointer's cell on a secondary press, `undefined` otherwise (SPEC §9); a
   handler meaning the primary button checks `button()`.
-- **Versions.** The SDK speaks `VERSIONS`, `["0.7", "0.6"]` (`VERSION` is
-  the newest, "0.7"). The query lists them, lowest first (`a=q:n=1:v=0.6,0.7`,
+- **Versions.** The SDK speaks `VERSIONS`, `["0.7", "0.8"]` (`VERSION` is
+  the newest, "0.8"). The query lists them, lowest first (`a=q:n=1:v=0.7,0.8`,
   SPEC §4), and detection takes the terminal for a host only when it answers
   with capabilities that decode and name one of them. The capabilities' `v`
-  (`link.caps.v`, `session.caps.v`) is the version the program met: a 0.6
-  host sends no secondary press (SDK.md §4.7), and a 0.7 program written for
-  it keeps its other handlers. `answerVersion(listed)` is what a host or
+  (`link.caps.v`, `session.caps.v`) is the version the program met: a 0.7
+  host has no `scroll` op or `hit`, and ignores `tab=program` and `default`
+  (SDK.md §3.8). On one, use focus and `reveal` to scroll, and keep Tab for
+  focus. `answerVersion(listed)` is what a host or
   relay answers a query in: the highest version both list, or undefined,
-  which is `EVERSION` with the detail `0.6,0.7`. Any other
+  which is `EVERSION` with the detail `0.7,0.8`. Any other
   answer to the query, an error (`EVERSION` from a host of other versions,
   or another code) or capabilities it cannot read (a 0.1 host's JSON) or of
   another version, is text at once, done with the DA1 behind it: `detect()`
   is false, `caps` absent, and the reply, detection's, never reaches the
   input. With `late`, only a reply that makes the terminal a host is the
   late answer. The test host speaks both: it answers in the highest version the
-  query lists and stays in it. In a 0.6 session every `secondaryPress` is the
-  terminal's, with Alt too, and reports nothing.
+  query lists and stays in it. Its keymaps follow 0.8 in both sessions
+  (HOST.md §5.1).
 - **Errors** are exceptions: `HottyError` (from `reply.err()`), and
   `NoAnswerError` when a request or a fence gets no answer in time, which
   carries the replies read so far. `NoTerminalError` when the process has no
@@ -285,7 +309,7 @@ keepCursor })`.
 ## Conformance
 
 The vectors are the hotty repository's `conformance/vectors.json`, of
-version 0.7, copied to `test/testdata`, and checked against a checkout of
+version 0.8, copied to `test/testdata`, and checked against a checkout of
 hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 
 - **SDK sections.** `wire`, `build`, `encode`, `decode`, `scan`, `detect`,
@@ -295,7 +319,7 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
 - **Host section.** The test host runs the commands, the inspections, the
   keys, the menu steps and the writes of the host vectors (`Host.key`,
   `Host.shown`, `Host.pick`), and keeps the touch areas a program sends for
-  each screen (`Host.touchAreas`). It declares `speaks-0.6`, so the vectors
+  each screen (`Host.touchAreas`). It declares `speaks-0.7`, so the vectors
   of a host that speaks both run where its steps allow: the query steps, not
   the pointer ones, which it skips as it does for every vector.
   `Host.secondaryPress(surface, id, c, r, keys?)` presses the secondary
@@ -303,8 +327,10 @@ hotty when one is at hand (`HOTTY_DIR`, by default `../../hotty/main`).
   element with `secondary` in its `data-on`, and nothing with none, with
   Shift, or with Alt (the program's gesture). It keeps each control's `rev` and each text field's selection, takes `a=field` and sends `caret`. Enter in a text input, or a key bound to `submit`, commits the field, in a form or not, and then submits its form. It has the features `hover`, `count` and `menu`, not `backdrop`, whose `b` it ignores, and lays
   nothing out, so the rows it gives `r=auto` are an estimate and are not
-  checked, and an event's `area` is not either; `reveal` answers as a host
-  does and scrolls nothing, and it sends no `view`. It skips the vectors
+  checked, and an event's `area` is not either; `reveal` and `scroll` answer
+  as a host does and move nothing, `hit` checks the surface and cell and
+  answers with no element, and it sends no `view`. A full reset (`ESC c`)
+  ends its session, clearing its surfaces and resources. It skips the vectors
   that require `scroll`, `steps`, `drop`, `view`, `touch`, `mouse`,
   `undo`, `passthrough`, `backdrop` or `commands` (SDK.md §4.4). The vectors' pointer steps
   (drags, presses, hover) and the events that follow from a layout are not

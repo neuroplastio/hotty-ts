@@ -9,27 +9,31 @@ export const MAX_SIZE = 1000;
 /** The longest a surface name is (SPEC §3.5). */
 export const MAX_NAME = 64;
 /**
- * The newest protocol version this SDK speaks (SPEC §4): hotty 0.7. It speaks
- * 0.6 too ({@link VERSIONS}).
+ * The newest protocol version this SDK speaks (SPEC §4): hotty 0.8. It speaks
+ * 0.7 too ({@link VERSIONS}).
  */
-export const VERSION = "0.7";
+export const VERSION = "0.8";
 /**
- * Every protocol version this SDK speaks, highest first (SPEC §4, §15). Its
- * query lists them lowest first (`v=0.6,0.7`), and a host's capabilities must
+ * Every protocol version this SDK speaks, lowest first (SPEC §4, §15). Its
+ * query lists them (`v=0.7,0.8`), and a host's capabilities must
  * name one of them for the SDK to use the host: `caps.v` is the version the
- * session is in. A 0.6 host sends no secondary press (SDK.md §4.7).
+ * session is in. A 0.7 host has no scroll op or hit query (SDK.md §3.8).
  */
-export const VERSIONS: readonly string[] = ["0.7", "0.6"];
+export const VERSIONS: readonly string[] = ["0.7", "0.8"];
 
 /**
- * The version a host that speaks `spoken` (highest first, as {@link VERSIONS}
- * is) answers a query listing `listed` in (SPEC §4): the highest one both
+ * The version a host that speaks `spoken` answers a query listing `listed`
+ * in (SPEC §4): the highest one both
  * have, or undefined when they share none, which is EVERSION, its detail
  * `spoken` lowest first.
  */
 export function answerVersion(listed: string | undefined, spoken: readonly string[] = VERSIONS): string | undefined {
   const l = (listed ?? "").split(",");
-  return spoken.find((v) => l.includes(v));
+  return spoken.filter((v) => l.includes(v)).sort((a, b) => {
+    const [am, an] = a.split(".").map(Number);
+    const [bm, bn] = b.split(".").map(Number);
+    return bm! - am! || bn! - an!;
+  })[0];
 }
 
 /** Which replies the host sends for a command (SPEC §3.5). */
@@ -79,7 +83,7 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 
 /**
  * The optional features a host may have (SPEC §4), as its capabilities list
- * them ({@link Caps.has}). Everything else a 0.6 host does.
+ * them ({@link Caps.has}). Everything else a 0.8 host does.
  */
 export const FEATURES = ["passthrough", "hover", "count", "menu", "backdrop"] as const;
 /** One of {@link FEATURES}. */

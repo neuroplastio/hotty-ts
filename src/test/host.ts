@@ -606,7 +606,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     // speaks, lowest first. The session stays in the version answered.
     if (a === "q") {
       const v = answerVersion(m.get("v"));
-      if (v === undefined) return err("EVERSION", [...VERSIONS].reverse().join(","));
+      if (v === undefined) return err("EVERSION", VERSIONS.join(","));
       this.#caps.v = v;
       return ok;
     }
@@ -1134,9 +1134,7 @@ export class Host implements AsyncIterable<Uint8Array> {
    * test gave that element (setArea), as a primary press does.
    *
    * With no such element nothing is reported: the press is the terminal's.
-   * So it is with Shift held, which gives the terminal's menu, and in a 0.6
-   * session (the program queried with v=0.6 only), which has no secondary
-   * press: the press is the terminal's, with Alt too. With Alt it
+   * So it is with Shift held, which gives the terminal's menu. With Alt it
    * is the program's own gesture, as press's is (SPEC §9.2): the pointer
    * leaves the window, and the surface hears nothing more. Otherwise it
    * makes no click, focus or blur, moves no keyboard, starts no drag and
@@ -1148,9 +1146,6 @@ export class Host implements AsyncIterable<Uint8Array> {
     const s = this.#target(surface);
     const el = id === "" ? s.body() : this.#element(s, id);
     if (s.detached) throw this.#detachedError(s);
-    // 0.6 has no secondary press (SPEC §15): in its session it is the
-    // terminal's, with Alt held too.
-    if (this.#caps.v === "0.6") return;
     if (this.#alt1(s, keys)) return;
     const mods = modBits(keys);
     if ((mods & MOD_SHIFT) !== 0) return;
