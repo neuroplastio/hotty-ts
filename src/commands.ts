@@ -5,7 +5,7 @@ import { NO_REPLY, OPS, type OpName, type Quiet, REPLY_ALWAYS, REPLY_ON_ERROR, V
 import { Control } from "./control.ts";
 import { encode } from "./encode.ts";
 import { HottyError, type Message } from "./messages.ts";
-import { readKey, type Platform } from "./keys.ts";
+import { readKey, SCROLL_ACTIONS, type Platform } from "./keys.ts";
 import { pack, unpack } from "./msgpack.ts";
 
 /**
@@ -222,7 +222,7 @@ export function hide(surface: string, opts?: ReplyOptions): string {
 export interface Op {
   /** What it does: one of {@link OPS}. */
   op: OpName | (string & {});
-  /** The id of the element, as the document has it; empty or absent for a morph of the whole tree, and sent only when not. */
+  /** The id of the element, as the document has it; empty or absent for a morph of the whole tree or a scroll of the root, and sent only when not. */
   target?: string;
   /** The name of the attribute or the custom property, for attr, unattr and var. */
   key?: string;
@@ -264,6 +264,9 @@ export const varOp = (target: string, name: string, value: string | number): Op 
  */
 export const revealOp = (target: string, where: "start" | "end" | "" = ""): Op =>
   where === "" ? { op: "reveal", target } : valued("reveal", target, "", where);
+
+/** Scrolls by one of the host's steps for the scroll action, from the target outward, or the root when empty (SPEC §6.1). */
+export const scrollOp = (target: string, action: string): Op => valued("scroll", target, "", action);
 
 /**
  * Changes one surface's document (SPEC §6.1): the ops, in the order they
@@ -325,6 +328,15 @@ export function morphTo(surface: string, target: string, html: string, opts?: Re
  */
 export function reveal(surface: string, target: string, where: "start" | "end" | "" = "", opts?: ReplyOptions): string {
   return delta(surface, [revealOp(target, where)], opts);
+}
+
+/**
+ * Scrolls as a key bound to the scroll action would, from the target
+ * outward, or the root when empty (SPEC §6.1). It moves no focus and sends
+ * no event of its own. A count is as many scroll ops in one delta.
+ */
+export function scroll(surface: string, target: string, action: string, opts?: ReplyOptions): string {
+  return delta(surface, [scrollOp(target, action)], opts);
 }
 
 /**
@@ -562,7 +574,7 @@ function mapOf(m: Message): Body | undefined {
   }
 }
 
-const OP_NEEDS_TARGET = new Set<string>(OPS.filter((o) => o !== "morph"));
+const OP_NEEDS_TARGET = new Set<string>(OPS.filter((o) => o !== "morph" && o !== "scroll"));
 
 /**
  * Reads a delta command's ops (SPEC §6.1), as a host or a relay does,
@@ -571,7 +583,8 @@ const OP_NEEDS_TARGET = new Set<string>(OPS.filter((o) => o !== "morph"));
  * fault, when the body does not decode (SPEC §3.3) or has no ops, an op is
  * not a map, holds `op`, `t`, `k` or `v` as anything but a str, or names
  * an op there is none of, an op lacks the `t` or `k` it needs (an empty
- * one is none), or a reveal has a value other than `start` or `end`. A
+ * one is none), a reveal has a value other than `start` or `end`, or a
+ * scroll has no scroll action. A
  * value an op does not take is ignored, and so is a key this SDK does not
  * know.
  */
@@ -595,6 +608,7 @@ export function deltaOf(m: Message): Op[] {
     if (t === "" && OP_NEEDS_TARGET.has(name as string)) throw invalid(m, "missing t", i);
     if (k === "" && (name === "attr" || name === "unattr" || name === "var")) throw invalid(m, "missing k", i);
     if (name === "reveal" && v !== undefined && v !== "start" && v !== "end") throw invalid(m, "reveal " + v, i);
+    if (name === "scroll" && !(SCROLL_ACTIONS as readonly string[]).includes(v ?? "")) throw invalid(m, "scroll " + (v ?? ""), i);
     const op: Op = { op: name as OpName };
     if (t !== "") op.target = t;
     if (k !== "") op.key = k;

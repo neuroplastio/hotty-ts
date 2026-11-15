@@ -26,6 +26,7 @@ import {
   query,
   remove,
   res,
+  scroll,
   text,
   SCROLL_HORIZONTAL,
   SCROLL_VERTICAL,
@@ -119,6 +120,18 @@ describe("Host morph", () => {
 describe("Host scroll and area", () => {
   const events = (h: Host) =>
     h.events().map((e) => [e.kind, e.target, e.area() ?? null] as const);
+
+  test("scroll checks a target, accepts the root and leaves the document and focus alone without layout (SPEC §6.1)", () => {
+    const { h, s } = surface("<input id=a value=kept>");
+    h.write(focus("s", "a"));
+    const before = s.byId("a");
+    h.write(scroll("s", "", "scroll-end", { n: 1 }) + scroll("s", "a", "scroll-up", { n: 2 }) + scroll("s", "gone", "scroll-down", { n: 3 }));
+    assert.deepEqual(h.replies().map((m) => { const r = m.reply()!; return [r.ok, r.code, r.op]; }), [[true, undefined, undefined], [true, undefined, undefined], [false, "ENOTARGET", 0]]);
+    assert.equal(s.byId("a"), before);
+    assert.equal(s.focused(), "a");
+    assert.equal(s.value("a"), "kept");
+    assert.deepEqual(h.events(), []);
+  });
 
   test("a document's scroll axes are its own (SPEC §5.1)", () => {
     const h = new Host();

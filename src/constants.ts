@@ -109,6 +109,7 @@ export const OPS = [
   "text",
   "var",
   "reveal",
+  "scroll",
 ] as const;
 /** One of {@link OPS}: what an {@link Op} does. */
 export type OpName = (typeof OPS)[number];

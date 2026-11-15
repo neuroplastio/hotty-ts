@@ -447,6 +447,7 @@ export class Surface {
   delta(o: Op): Outcome {
     const { op, target = "", key = "", value: payload = "" } = o;
     if (op === "morph" && target === "") return this.#morphByIds(payload);
+    if (op === "scroll" && target === "") return undefined; // the root, with no layout to scroll
     const t = this.byId(target);
     if (!t) return { code: "ENOTARGET", detail: target };
     switch (op) {
@@ -514,6 +515,7 @@ export class Surface {
         setAttr(t, "style", setStyleProp(attr(t, "style") ?? "", varName(key), payload));
         break;
       case "reveal":
+      case "scroll":
         // It changes no node, and this host lays nothing out: nothing scrolls.
         break;
       default:

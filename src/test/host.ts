@@ -199,7 +199,7 @@ function estimateRows(s: Surface, cols: number): number {
  * pixels: a placement with auto rows gets an estimate (autoRows), a click
  * or a press reports the area the test gave its element (setArea), a
  * document that asks to scroll records its axes (Surface.scroll), and
- * reveal scrolls nothing. It does not list view: what is in view is a
+ * reveal and scroll move nothing. It does not list view: what is in view is a
  * test's to emit.
  *
  * It also answers what terminals answer: Primary Device Attributes, the

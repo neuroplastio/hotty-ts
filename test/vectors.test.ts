@@ -127,6 +127,8 @@ function build(b: Any): string {
       return hotty.morphTo(a.surface, a.target, a.html, ro);
     case "reveal":
       return hotty.reveal(a.surface, a.target, a.where ?? "", ro);
+    case "scroll":
+      return hotty.scroll(a.surface, a.target ?? "", a.action, ro);
     case "res":
       return hotty.res(a.id, a.mime, a.data, ro);
     case "del_res":

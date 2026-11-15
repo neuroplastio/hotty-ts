@@ -28,6 +28,7 @@ import {
   remove,
   replace,
   revealOp,
+  scrollOp,
   text,
   touch,
   TOUCH_MAX,
@@ -126,6 +127,9 @@ describe("deltaOf", () => {
     assert.deepEqual(fault(withBody({ ops: [{ op: "text", t: "", v: "x" }] })), ["EINVAL", "missing t", 0], "an empty one is none");
     assert.deepEqual(fault(withBody({ ops: [{ op: "attr", t: "a", v: "x" }] })), ["EINVAL", "missing k", 0]);
     assert.deepEqual(fault(withBody({ ops: [{ op: "reveal", t: "a", v: "middle" }] })), ["EINVAL", "reveal middle", 0]);
+    assert.deepEqual(fault(withBody({ ops: [{ op: "scroll" }] })), ["EINVAL", "scroll ", 0]);
+    assert.deepEqual(fault(withBody({ ops: [{ op: "scroll", v: "down" }] })), ["EINVAL", "scroll down", 0]);
+    assert.deepEqual(deltaOf(received(delta("x", [scrollOp("", "scroll-end")]))), [{ op: "scroll", value: "scroll-end" }]);
     assert.deepEqual(fault(received(encode([["a", "frob"]], pack({ ops: [] })))), ["EINVAL", "not a delta command", undefined]);
   });
 
