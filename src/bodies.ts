@@ -6,6 +6,7 @@
 import type { Type } from "./msgpack.ts";
 
 export const ERROR: Type = { code: "str", detail: "str" };
+export const HIT: Type = { t: "str", tx: "int", ty: "int" };
 
 export const CAPS: Type = {
   v: "str",

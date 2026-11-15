@@ -201,7 +201,7 @@ describe("host vectors", () => {
           } catch (e) {
             assert.fail(`step ${i}: the body ${hex} does not decode: ${(e as Error).message}`);
           }
-          for (const [k, val] of Object.entries(body)) assert.deepEqual(have?.[k], val, `step ${i}: body ${k} (${hex})`);
+          for (const [k, val] of Object.entries(body)) assert.deepEqual(have?.[k], val === null ? undefined : val, `step ${i}: body ${k} (${hex})`);
         }
         // The host lays nothing out: the rows it gives r=auto are an estimate.
         if (st.send.a === "place" && (st.send.r === undefined || st.send.r === "auto")) delete want.r;

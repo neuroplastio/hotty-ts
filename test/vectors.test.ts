@@ -143,6 +143,8 @@ function build(b: Any): string {
       return hotty.focus(a.surface, a.target ?? "", ro);
     case "blur":
       return hotty.blur(a.surface, ro);
+    case "hit":
+      return hotty.hit(a.surface, a.c, a.r, ro);
     case "edit":
       return hotty.edit(a.names ?? [], ro);
     case "menu":
@@ -224,6 +226,7 @@ function replyView(r: hotty.Reply) {
     op: nul(r.op),
     code: nul(r.code),
     detail: nul(r.detail),
+    hit: r.hit ? { t: r.hit.t, tx: nul(r.hit.tx), ty: nul(r.hit.ty) } : null,
   };
 }
 

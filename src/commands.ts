@@ -22,7 +22,7 @@ export interface ReplyOptions {
   /**
    * The quiet level: 0 replies always, 1 only on error, 2 never. It wins
    * over the level `n` implies. It goes out only where the wire does not
-   * imply it: 0 with `n`, else 1 (SPEC §3.5).
+   * imply it: 0 for hit or with `n`, else 1 (SPEC §3.5).
    */
   q?: Quiet;
 }
@@ -381,6 +381,18 @@ export function focus(surface: string, target = "", opts?: ReplyOptions): string
   let ctl = new Control([["a", "focus"], ["s", surface]]);
   if (target !== "") ctl = ctl.with("t", target);
   return command(ctl, undefined, NO_REPLY, opts);
+}
+
+/**
+ * Asks which element is at a surface's cell (c, r), counted from its top
+ * left cell, negative above and to its left (SPEC §9.7). A query, so it
+ * implies quiet level 0 with or without n. Its answer is Reply.hit.
+ */
+export function hit(surface: string, c: number, r: number, opts?: ReplyOptions): string {
+  let ctl = new Control([["a", "hit"], ["s", surface], ["c", Math.trunc(c)], ["r", Math.trunc(r)]]);
+  if (opts?.n !== undefined) ctl = ctl.with("n", opts.n);
+  if (opts?.q !== undefined && opts.q !== REPLY_ALWAYS) ctl = ctl.with("q", opts.q);
+  return encode(ctl);
 }
 
 /**

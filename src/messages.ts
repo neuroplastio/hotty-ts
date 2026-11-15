@@ -3,7 +3,7 @@
 // (bodies.ts): one that does not decode leaves absent what it would fill,
 // and the message stands.
 
-import { CAPS, DETAIL, ERROR } from "./bodies.ts";
+import { CAPS, DETAIL, ERROR, HIT } from "./bodies.ts";
 import type { ErrorCode, EventKind, Feature } from "./constants.ts";
 import { readBody, unpack } from "./msgpack.ts";
 
@@ -123,6 +123,8 @@ export class Reply {
   readonly detail: string | undefined;
   /** The reply as it came. */
   readonly message: Message;
+  /** What a cell holds in an ok reply to hit (SPEC §9.7); absent for other replies or a body that does not decode. */
+  readonly hit: HitCell | undefined;
 
   constructor(m: Message) {
     this.message = m;
@@ -134,6 +136,10 @@ export class Reply {
     this.rows = int(m.get("r"));
     const i = int(m.get("i"));
     this.op = i !== undefined && i >= 0 ? i : undefined;
+    if (this.ok && this.re === "hit") {
+      const body = readBody(m.payload, HIT);
+      if (body) this.hit = { t: (body.t as string | undefined) ?? "", tx: body.tx as number | undefined, ty: body.ty as number | undefined };
+    }
     if (!this.ok) {
       const body = readBody(m.payload, ERROR);
       this.code = body?.code as string | undefined;
@@ -157,6 +163,15 @@ export class Reply {
   err(): HottyError | undefined {
     return this.ok ? undefined : new HottyError(this.code ?? "", this.detail, this.re, this.surface, this.op);
   }
+}
+
+/** What a cell of a surface holds (SPEC §9.7). */
+export interface HitCell {
+  /** The element a drag would name there; empty for none. */
+  t: string;
+  /** The steps in a drop target with data-steps; absent along an axis it does not count. */
+  tx?: number;
+  ty?: number;
 }
 
 /** Where a drag's pointer is (SPEC §9.1); the modifier keys held are the event's {@link Event.mods}. */

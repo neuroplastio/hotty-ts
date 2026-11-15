@@ -563,7 +563,7 @@ export class Host implements AsyncIterable<Uint8Array> {
     if (code === "EINVAL") this.#protocol(`${a} refused: EINVAL (${detail}): ${ctlString(m)}`);
     // Only errors, unless asked: a command with n, and a query, are
     // answered whatever the outcome (SPEC §3.5).
-    const q = m.get("q") ?? (m.get("n") !== undefined || a === "q" ? "0" : "1");
+    const q = m.get("q") ?? (m.get("n") !== undefined || a === "q" || a === "hit" ? "0" : "1");
     if (!(q === "2" || (q === "1" && !code))) {
       const ctl: [string, string][] = [["a", code ? "err" : "ok"]];
       const n = m.get("n");
@@ -579,7 +579,7 @@ export class Host implements AsyncIterable<Uint8Array> {
         payload = pack(this.#caps, CAPS);
         this.#heard = this.#caps;
         this.#queried = true;
-      }
+      } else if (a === "hit") payload = pack({}); // no layout: no element at the cell
       this.#reply(encode(ctl, payload));
     }
     // After the reply: the host lays the document out on its next frame,
@@ -648,7 +648,7 @@ export class Host implements AsyncIterable<Uint8Array> {
       }
       return ok;
     }
-    if (!["doc", "place", "hide", "delta", "del", "detach", "focus", "blur", "field"].includes(a)) return err("EINVAL", "unknown action " + a);
+    if (!["doc", "place", "hide", "delta", "del", "detach", "focus", "blur", "field", "hit"].includes(a)) return err("EINVAL", "unknown action " + a);
     const name = m.get("s");
     if (name === undefined || !validName(name)) return err("EINVAL", "bad surface name");
     let s = this.#surfaces.get(name);
@@ -680,6 +680,10 @@ export class Host implements AsyncIterable<Uint8Array> {
     }
     if (!s) return err("ENOENT", "no surface " + name);
     switch (a) {
+      case "hit":
+        if (![m.get("c"), m.get("r")].every((v) => v !== undefined && /^-?[0-9]+$/.test(v))) return err("EINVAL", "bad cell");
+        if (s.detached) return err("EDETACHED", name);
+        return ok;
       case "place":
         return this.#place(s, m);
       case "hide":
